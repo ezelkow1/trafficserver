@@ -29,15 +29,60 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <search.h>
+#include <inttypes.h>
+#include <stdlib.h>
 
 #define PLUGIN_NAME "system_stats"
 #define DEBUG_TAG PLUGIN_NAME
 
-typedef struct {
+  typedef struct {
     int txn_slot;
     TSStatPersistence persist_type;
     TSMutex stat_creation_mutex;
   } config_t;
+
+  static char * 
+  getFile(char *filename, char *buffer, int bufferSize) 
+  {
+	TSFile f= 0;
+	size_t s = 0;
+
+	f = TSfopen(filename, "r");
+	if (!f)
+	{
+		buffer[0] = 0;
+		return buffer;
+	}
+
+	s = TSfread(f, buffer, bufferSize);
+	if (s > 0)
+		buffer[s] = 0;
+	else
+		buffer[0] = 0;
+
+	TSfclose(f);
+
+	return buffer;
+  }
+
+  static int 
+  getSpeed(char *inf, char *buffer, int bufferSize) 
+  {
+	char* str;
+	char b[256];
+	int speed = 0;
+
+	snprintf(b, sizeof(b), "/sys/class/net/%s/operstate", inf);
+	str = getFile(b, buffer, bufferSize);
+	if (str && strstr(str, "up"))
+	{
+		snprintf(b, sizeof(b), "/sys/class/net/%s/speed", inf);
+		str = getFile(b, buffer, bufferSize);
+		speed = strtol(str, 0, 10);
+	}
+
+	return speed;
+  }
 
   void
   TSPluginInit(int argc, const char *argv[])
