@@ -37,16 +37,29 @@
 
 
   typedef struct {
+    unsigned int recordTypes;
     int txn_slot;
     TSStatPersistence persist_type;
     TSMutex stat_creation_mutex;
   } config_t;
 
   typedef struct {
+    TSVConn net_vc;
+    TSVIO read_vio;
+    TSVIO write_vio;
+  
+    TSIOBuffer req_buffer;
+    TSIOBuffer resp_buffer;
+    TSIOBufferReader resp_reader;
+  
+    int output_bytes;
+    int body_written;
+    
     int globals_cnt;
     char **globals;
     char *interfaceName;
     char *query;
+    int speed;
     unsigned int recordTypes;
   } stats_state;
 
@@ -56,6 +69,20 @@
       if (snprintf(b, sizeof(b), "   \"%s\": " fmt ",\n", a, v) < sizeof(b)) \
       APPEND(b); \
   } while(0)
+
+#if 0
+  static char * nstr(const char *s) {
+    char *mys = (char *)TSmalloc(strlen(s)+1);
+    strcpy(mys, s);
+    return mys;
+  }
+#endif
+  static char * nstrl(const char *s, int len) {
+    char *mys = (char *)TSmalloc(len + 1);
+    memcpy(mys, s, len);
+    mys[len] = 0;
+    return mys;
+  }
 
   static char ** 
   parseGlobals(char *str, int *globals_cnt) 
@@ -135,24 +162,26 @@
   }
 
   static int 
-  getSpeed(char *inf, char *buffer, int bufferSize) 
+  getSpeed(char *inf) 
   {
     char* str;
     char b[256];
     int speed = 0;
+    char buffer[2024];
+    int bsize = 2024;
 
     snprintf(b, sizeof(b), "/sys/class/net/%s/operstate", inf);
-    str = getFile(b, buffer, bufferSize);
+    str = getFile(b, buffer, bsize);
     if (str && strstr(str, "up"))
     {
       snprintf(b, sizeof(b), "/sys/class/net/%s/speed", inf);
-      str = getFile(b, buffer, bufferSize);
+      str = getFile(b, buffer, bsize);
       speed = strtol(str, 0, 10);
     }
 
     return speed;
   }
-
+#if 0
   static char *
   get_effective_host(TSHttpTxn txn)
   {
@@ -177,40 +206,65 @@
     TSMBufferDestroy(buf);
     return tmp;
   }
+#endif
+  static char *
+  get_query(TSHttpTxn txn)
+  {
+    TSMBuffer reqp;
+    TSMLoc hdr_loc = NULL, url_loc = NULL;
+    TSHttpTxnClientReqGet(txn, &reqp, &hdr_loc);
+    TSHttpHdrUrlGet(reqp, hdr_loc, &url_loc);
+    int query_len;
+    char *query_unterminated = (char*)TSUrlHttpQueryGet(reqp,url_loc,&query_len);
+    char *query = nstrl(query_unterminated, query_len);
+    return query;
+  }
+
+  static void
+  get_stats(stats_state *my_state, TSHttpTxn txn)
+  {
+    char buffer[2024];
+    int bsize = 2024;
+    char *str;
+    char *query;
+
+    //add interface name
+    //add inf speed
+    query = get_query(txn);
+    stats_fillState(my_state, query, strlen(query));
+
+    str = getFile("/proc/net/dev", buffer, bsize);
+    TSDebug(DEBUG_TAG, "dev: %s", str);
+
+    str = getFile("/proc/loadavg", buffer, bsize);
+
+    my_state->speed = getSpeed(my_state->interfaceName);
+
+
+    return;
+  }
 
   static int
   handle_read_req_hdr(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
   {
     TSHttpTxn txn = (TSHttpTxn)edata;
     config_t *config;
-    void *txnd;
+    TSEvent reenable = TS_EVENT_HTTP_CONTINUE;
+    stats_state *my_state;
 
     config = (config_t *)TSContDataGet(cont);
-    txnd   = (void *)get_effective_host(txn); // low bit left 0 because we do not know that remap succeeded yet
-    TSHttpTxnArgSet(txn, config->txn_slot, txnd);
 
-    TSHttpTxnReenable(txn, TS_EVENT_HTTP_CONTINUE);
-    TSDebug(DEBUG_TAG, "Read Req Handler Finished");
-    return 0;
-  }
-
-  static void
-  get_stats()
-  {
-    char buffer[2024];
-    int bsize = 2024;
-    char *str;
-
-    //add interface name
-    //add inf speed
+    my_state = (stats_state *) TSmalloc(sizeof(*my_state));
+    memset(my_state, 0, sizeof(*my_state));
+  
+    my_state->recordTypes = config->recordTypes;
+    get_stats(my_state, txn);
+    TSDebug(DEBUG_TAG, "%s(): inf %s", __FUNCTION__, my_state->interfaceName );
+    TSDebug(DEBUG_TAG, "%s(): speed: %d", __FUNCTION__, my_state->speed);
     
-    str = getFile("/proc/net/dev", buffer, bsize);
-    TSDebug(DEBUG_TAG, "dev: %s", str);
-
-    str = getFile("/proc/loadavg", buffer, bsize);
-
-
-    return;
+    TSDebug(DEBUG_TAG, "Read Req Handler Finished");
+    TSHttpTxnReenable(txn, reenable);
+    return 0;
   }
 
   void
@@ -254,7 +308,7 @@
      * Do an initial poll here of all stats to save
      * an initial state
      * ****/
-      get_stats();
+      //get_stats();
         TSDebug(DEBUG_TAG, "Init complete");
   }
   
