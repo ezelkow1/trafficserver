@@ -234,10 +234,10 @@
     stats_fillState(my_state, query, strlen(query));
 
     str = getFile("/proc/net/dev", buffer, bsize);
-    TSDebug(DEBUG_TAG, "dev: %s", str);
+    //TSDebug(DEBUG_TAG, "dev: %s", str);
 
     str = getFile("/proc/loadavg", buffer, bsize);
-
+    TSDebug(DEBUG_TAG, "loadavg: %s",str);
     my_state->speed = getSpeed(my_state->interfaceName);
 
 
