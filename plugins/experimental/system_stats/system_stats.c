@@ -19,38 +19,40 @@
   limitations under the License.
  */
 
-#include "ts/ink_config.h"
-#include "ts/ink_defs.h"
+  #include "ts/ink_config.h"
+  #include "ts/ink_defs.h"
 
-#include "ts/ts.h"
-#include <stdint.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stdio.h>
-#include <getopt.h>
-#include <search.h>
-#include <inttypes.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <dirent.h>
+  #include "ts/ts.h"
+  #include <stdint.h>
+  #include <stdbool.h>
+  #include <string.h>
+  #include <stdio.h>
+  #include <getopt.h>
+  #include <search.h>
+  #include <inttypes.h>
+  #include <stdlib.h>
+  #include <sys/types.h>
+  #include <dirent.h>
 
-#include <unistd.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
-
-#define PLUGIN_NAME "system_stats"
-#define DEBUG_TAG PLUGIN_NAME
+  #include <unistd.h>
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
 
 
-  typedef struct {
+  #define PLUGIN_NAME "system_stats"
+  #define DEBUG_TAG PLUGIN_NAME
+
+
+  typedef struct 
+  {
     unsigned int recordTypes;
     int txn_slot;
     TSStatPersistence persist_type;
     TSMutex stat_creation_mutex;
   } config_t;
 
-  typedef struct {
+  typedef struct 
+  {
     TSVConn net_vc;
     TSVIO read_vio;
     TSVIO write_vio;
@@ -81,8 +83,7 @@
   #define SYSTEM_RECORD_TYPE 		(0x100)
   #define DEFAULT_RECORD_TYPES	(SYSTEM_RECORD_TYPE | TS_RECORDTYPE_PROCESS | TS_RECORDTYPE_PLUGIN)
 
-  static int
-  stats_add_data_to_resp_buffer(const char *s, stats_state *my_state)
+  static int stats_add_data_to_resp_buffer(const char *s, stats_state *my_state)
   {
     int s_len = strlen(s);
   
@@ -91,8 +92,7 @@
     return s_len;
   }
 
-  static void
-  stats_cleanup(TSCont contp, stats_state *my_state)
+  static void stats_cleanup(TSCont contp, stats_state *my_state)
   {
     if (my_state->req_buffer) {
       TSIOBufferDestroy(my_state->req_buffer);
@@ -108,8 +108,7 @@
     TSContDestroy(contp);
   }
 
-  static void
-  stats_process_accept(TSCont contp, stats_state *my_state)
+  static void stats_process_accept(TSCont contp, stats_state *my_state)
   {
     my_state->req_buffer  = TSIOBufferCreate();
     my_state->resp_buffer = TSIOBufferCreate();
@@ -119,8 +118,7 @@
 
   static const char RESP_HEADER[] = "HTTP/1.0 200 Ok\r\nContent-Type: text/javascript\r\nCache-Control: no-cache\r\n\r\n";
   
-  static int
-  stats_add_resp_header(stats_state *my_state)
+  static int stats_add_resp_header(stats_state *my_state)
   {
     return stats_add_data_to_resp_buffer(RESP_HEADER, my_state);
   }
@@ -141,8 +139,7 @@
       }                                                                                \
     } while (0)
 
-  static void
-  json_out_stat(TSRecordType rec_type, void *edata, int registered, const char *name, TSRecordDataType data_type, TSRecordData *datum) 
+  static void json_out_stat(TSRecordType rec_type, void *edata, int registered, const char *name, TSRecordDataType data_type, TSRecordData *datum) 
   {
     stats_state *my_state = edata;
     int found = 0;
@@ -175,22 +172,24 @@
     }
   }
 
-#if 0
-  static char * nstr(const char *s) {
+  #if 0
+  static char * nstr(const char *s) 
+  {
     char *mys = (char *)TSmalloc(strlen(s)+1);
     strcpy(mys, s);
     return mys;
   }
-#endif
-  static char * nstrl(const char *s, int len) {
+  #endif
+
+  static char * nstrl(const char *s, int len) 
+  {
     char *mys = (char *)TSmalloc(len + 1);
     memcpy(mys, s, len);
     mys[len] = 0;
     return mys;
   }
 
-  static char ** 
-  parseGlobals(char *str, int *globals_cnt) 
+  static char ** parseGlobals(char *str, int *globals_cnt) 
   {
     char *tok = 0;
     char **globals = 0;
@@ -222,8 +221,7 @@
     return globals;
   }
 
-  static void 
-  stats_fillState(stats_state *my_state, char *query, int query_len) 
+  static void stats_fillState(stats_state *my_state, char *query, int query_len) 
   {
     char* arg = 0;
 
@@ -242,8 +240,7 @@
     }
   }
 
-  static char * 
-  getFile(char *filename, char *buffer, int bufferSize) 
+  static char * getFile(char *filename, char *buffer, int bufferSize) 
   {
     TSFile f= 0;
     size_t s = 0;
@@ -266,8 +263,7 @@
     return buffer;
   }
 
-  static int 
-  getSpeed(char *inf) 
+  static int getSpeed(char *inf) 
   {
     char* str;
     char b[256];
@@ -286,9 +282,9 @@
 
     return speed;
   }
-#if 0
-  static char *
-  get_effective_host(TSHttpTxn txn)
+
+  #if 0
+  static char * get_effective_host(TSHttpTxn txn)
   {
     char *effective_url, *tmp;
     const char *host;
@@ -311,9 +307,9 @@
     TSMBufferDestroy(buf);
     return tmp;
   }
-#endif
-  static char *
-  get_query(TSHttpTxn txn)
+  #endif
+
+  static char * get_query(TSHttpTxn txn)
   {
     TSMBuffer reqp;
     TSMLoc hdr_loc = NULL, url_loc = NULL;
@@ -325,8 +321,7 @@
     return query;
   }
 
-  static void
-  get_stats(stats_state *my_state)
+  static void get_stats(stats_state *my_state)
   {
     char buffer[2024];
     int bsize = 2024;
@@ -368,8 +363,9 @@
     return;
   }
 
-#if 0  
-  static void json_out_stats(stats_state *my_state) {
+  #if 0  
+  static void json_out_stats(stats_state *my_state) 
+  {
     const char *version;
     TSDebug(PLUGIN_NAME, "recordTypes: '0x%x'", my_state->recordTypes);
     APPEND("{ \"ats\": {\n");
@@ -395,9 +391,10 @@
   
     APPEND("\n}\n");
   }
-#endif
+  #endif
 
-  static void stats_process_write(TSCont contp, TSEvent event, stats_state *my_state) {
+  static void stats_process_write(TSCont contp, TSEvent event, stats_state *my_state) 
+  {
     if (event == TS_EVENT_VCONN_WRITE_READY) {
       if (my_state->body_written == 0) {
         TSDebug(PLUGIN_NAME, "plugin adding response body");
@@ -418,8 +415,7 @@
       TSReleaseAssert(!"Unexpected Event");
   }
   
-  static void
-  stats_process_read(TSCont contp, TSEvent event, stats_state *my_state)
+  static void stats_process_read(TSCont contp, TSEvent event, stats_state *my_state)
   {
     TSDebug(PLUGIN_NAME, "stats_process_read(%d)", event);
     if (event == TS_EVENT_VCONN_READ_READY) {
@@ -439,7 +435,8 @@
     }
   }
   
-  static int stats_dostuff(TSCont contp, TSEvent event, void *edata) {
+  static int stats_dostuff(TSCont contp, TSEvent event, void *edata) 
+  {
     stats_state *my_state = TSContDataGet(contp);
     if (event == TS_EVENT_NET_ACCEPT) {
       my_state->net_vc = (TSVConn) edata;
@@ -454,8 +451,7 @@
     return 0;
   }
 
-  static int
-  handle_read_req_hdr(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
+  static int handle_read_req_hdr(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
   {
     TSHttpTxn txn = (TSHttpTxn)edata;
     config_t *config;
@@ -478,8 +474,7 @@
     return 0;
   }
 
-  void
-  TSPluginInit(int argc, const char *argv[])
+  void TSPluginInit(int argc, const char *argv[])
   {
     TSPluginRegistrationInfo info;
     TSCont stats_cont;
