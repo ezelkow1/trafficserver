@@ -31,6 +31,13 @@
 #include <search.h>
 #include <inttypes.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <dirent.h>
+
+#include <unistd.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 
 #define PLUGIN_NAME "system_stats"
 #define DEBUG_TAG PLUGIN_NAME
@@ -51,7 +58,8 @@
     TSIOBuffer req_buffer;
     TSIOBuffer resp_buffer;
     TSIOBufferReader resp_reader;
-  
+    TSHttpTxn txn;
+
     int output_bytes;
     int body_written;
     
@@ -62,13 +70,108 @@
     int speed;
     unsigned int recordTypes;
   } stats_state;
+  
+  int configReloadRequests = 0;
+  int configReloads = 0;
+  time_t lastReloadRequest = 0;
+  time_t lastReload = 0;
+  time_t astatsLoad = 0;
+  #define SYSTEM_RECORD_TYPE 		(0x100)
+  #define DEFAULT_RECORD_TYPES	(SYSTEM_RECORD_TYPE | TS_RECORDTYPE_PROCESS | TS_RECORDTYPE_PLUGIN)
 
+  static int
+  stats_add_data_to_resp_buffer(const char *s, stats_state *my_state)
+  {
+    int s_len = strlen(s);
+  
+    TSIOBufferWrite(my_state->resp_buffer, s, s_len);
+  
+    return s_len;
+  }
+
+  static void
+  stats_cleanup(TSCont contp, stats_state *my_state)
+  {
+    if (my_state->req_buffer) {
+      TSIOBufferDestroy(my_state->req_buffer);
+      my_state->req_buffer = NULL;
+    }
+
+    if (my_state->resp_buffer) {
+      TSIOBufferDestroy(my_state->resp_buffer);
+      my_state->resp_buffer = NULL;
+    }
+    TSVConnClose(my_state->net_vc);
+    TSfree(my_state);
+    TSContDestroy(contp);
+  }
+
+  static void
+  stats_process_accept(TSCont contp, stats_state *my_state)
+  {
+    my_state->req_buffer  = TSIOBufferCreate();
+    my_state->resp_buffer = TSIOBufferCreate();
+    my_state->resp_reader = TSIOBufferReaderAlloc(my_state->resp_buffer);
+    my_state->read_vio    = TSVConnRead(my_state->net_vc, contp, my_state->req_buffer, INT64_MAX);
+  }
+
+  static const char RESP_HEADER[] = "HTTP/1.0 200 Ok\r\nContent-Type: text/javascript\r\nCache-Control: no-cache\r\n\r\n";
+  
+  static int
+  stats_add_resp_header(stats_state *my_state)
+  {
+    return stats_add_data_to_resp_buffer(RESP_HEADER, my_state);
+  }
+  
   #define APPEND(a) my_state->output_bytes += stats_add_data_to_resp_buffer(a, my_state)
-  #define APPEND_STAT(a, fmt, v) do { \
-      char b[3048]; \
-      if (snprintf(b, sizeof(b), "   \"%s\": " fmt ",\n", a, v) < sizeof(b)) \
-      APPEND(b); \
-  } while(0)
+  #define APPEND_STAT(a, fmt, v)                                                   \
+    do {                                                                           \
+      char b[256];                                                                 \
+      if (snprintf(b, sizeof(b), "\"%s\": \"" fmt "\",\n", a, v) < (int)sizeof(b)) \
+        APPEND(b);                                                                 \
+    } while (0)
+
+    #define APPEND_STAT_NUMERIC(a, fmt, v)                                               \
+    do {                                                                               \
+      char b[256];                                                                     \
+        if (snprintf(b, sizeof(b), "\"%s\": \"" fmt "\",\n", a, v) < (int)sizeof(b)) { \
+          APPEND(b);                                                                   \
+      }                                                                                \
+    } while (0)
+
+  static void
+  json_out_stat(TSRecordType rec_type, void *edata, int registered, const char *name, TSRecordDataType data_type, TSRecordData *datum) 
+  {
+    stats_state *my_state = edata;
+    int found = 0;
+    int i;
+  
+    if (my_state->globals_cnt) {
+      for (i = 0; i < my_state->globals_cnt; i++) {
+        if (strstr(name, my_state->globals[i])) {
+          found = 1;
+          break;
+        }
+      }
+  
+      if (!found)
+        return; // skip
+    }
+  
+    switch(data_type) {
+    case TS_RECORDDATATYPE_COUNTER:
+      APPEND_STAT_NUMERIC(name, "%" PRIu64, datum->rec_counter); break;
+    case TS_RECORDDATATYPE_INT:
+      APPEND_STAT_NUMERIC(name, "%" PRIi64, datum->rec_int); break;
+    case TS_RECORDDATATYPE_FLOAT:
+      APPEND_STAT_NUMERIC(name, "%f", datum->rec_float); break;
+    case TS_RECORDDATATYPE_STRING:
+      APPEND_STAT(name, "\"%s\"", datum->rec_string); break;
+    default:
+      TSDebug(PLUGIN_NAME, "unkown type for %s: %d", name, data_type);
+      break;
+    }
+  }
 
 #if 0
   static char * nstr(const char *s) {
@@ -221,27 +324,128 @@
   }
 
   static void
-  get_stats(stats_state *my_state, TSHttpTxn txn)
+  get_stats(stats_state *my_state)
   {
     char buffer[2024];
     int bsize = 2024;
     char *str;
+    char *end;
     char *query;
 
-    //add interface name
-    //add inf speed
-    query = get_query(txn);
+    query = get_query(my_state->txn);
     stats_fillState(my_state, query, strlen(query));
 
+    //add interface name
+    APPEND_STAT("inf.name", "\"%s\"", my_state->interfaceName);
+
+    //add inf speed
+    my_state->speed = getSpeed(my_state->interfaceName);    
+    APPEND_STAT("inf.speed", "%d", my_state->speed);
+
     str = getFile("/proc/net/dev", buffer, bsize);
-    //TSDebug(DEBUG_TAG, "dev: %s", str);
-
+    if (str && my_state->interfaceName) {
+      str = strstr(str, my_state->interfaceName);
+      if (str) {
+        end = strstr(str, "\n");
+        if (end)
+          *end = 0;
+        APPEND_STAT("proc.net.dev", "\"%s\"", str);
+      }
+    }
+    
     str = getFile("/proc/loadavg", buffer, bsize);
-    TSDebug(DEBUG_TAG, "loadavg: %s",str);
-    my_state->speed = getSpeed(my_state->interfaceName);
-
+    if (str) {
+      end = strstr(str, "\n");
+      if (end)
+        *end = 0;
+      APPEND_STAT("proc.loadavg", "\"%s\"", str);
+    }
 
     return;
+  }
+
+  static void json_out_stats(stats_state *my_state) {
+    const char *version;
+    TSDebug(PLUGIN_NAME, "recordTypes: '0x%x'", my_state->recordTypes);
+    APPEND("{ \"ats\": {\n");
+          TSRecordDump(my_state->recordTypes, json_out_stat, my_state);
+    version = TSTrafficServerVersionGet();
+    APPEND("   \"server\": \"");
+    APPEND(version);
+    APPEND("\"\n");
+    APPEND("  }");
+  
+    if (my_state->recordTypes & SYSTEM_RECORD_TYPE) {
+      APPEND(",\n \"system\": {\n");
+      get_stats(my_state);
+
+      APPEND_STAT_NUMERIC("configReloadRequests", "%d", configReloadRequests);
+      APPEND_STAT("lastReloadRequest", "%" PRIi64, (long long)lastReloadRequest);
+      APPEND_STAT_NUMERIC("configReloads", "%d", configReloads);
+      APPEND_STAT_NUMERIC("lastReload", "%" PRIi64, (long long)lastReload);
+      APPEND_STAT_NUMERIC("astatsLoad", "%" PRIi64, (long long)astatsLoad);
+      APPEND("\"something\": \"here\"");
+      APPEND("\n  }");
+    }
+  
+    APPEND("\n}\n");
+  }
+  
+  static void stats_process_write(TSCont contp, TSEvent event, stats_state *my_state) {
+    if (event == TS_EVENT_VCONN_WRITE_READY) {
+      if (my_state->body_written == 0) {
+        TSDebug(PLUGIN_NAME, "plugin adding response body");
+        my_state->body_written = 1;
+        json_out_stats(my_state);
+        TSVIONBytesSet(my_state->write_vio, my_state->output_bytes);
+      }
+      TSVIOReenable(my_state->write_vio);
+      TSfree(my_state->globals);
+      my_state->globals = NULL;
+      TSfree(my_state->query);
+      my_state->query = NULL;
+    } else if (TS_EVENT_VCONN_WRITE_COMPLETE)
+      stats_cleanup(contp, my_state);
+    else if (event == TS_EVENT_ERROR)
+      TSError("stats_process_write: Received TS_EVENT_ERROR\n");
+    else
+      TSReleaseAssert(!"Unexpected Event");
+  }
+  
+  static void
+  stats_process_read(TSCont contp, TSEvent event, stats_state *my_state)
+  {
+    TSDebug(PLUGIN_NAME, "stats_process_read(%d)", event);
+    if (event == TS_EVENT_VCONN_READ_READY) {
+      my_state->output_bytes = stats_add_resp_header(my_state);
+      TSVConnShutdown(my_state->net_vc, 1, 0);
+      my_state->write_vio = TSVConnWrite(my_state->net_vc, contp, my_state->resp_reader, INT64_MAX);
+    } else if (event == TS_EVENT_ERROR) {
+      TSError("[%s] stats_process_read: Received TS_EVENT_ERROR", PLUGIN_NAME);
+    } else if (event == TS_EVENT_VCONN_EOS) {
+      /* client may end the connection, simply return */
+      return;
+    } else if (event == TS_EVENT_NET_ACCEPT_FAILED) {
+      TSError("[%s] stats_process_read: Received TS_EVENT_NET_ACCEPT_FAILED", PLUGIN_NAME);
+    } else {
+      printf("Unexpected Event %d\n", event);
+      TSReleaseAssert(!"Unexpected Event");
+    }
+  }
+  
+  static int stats_dostuff(TSCont contp, TSEvent event, void *edata) {
+    stats_state *my_state = TSContDataGet(contp);
+    if (event == TS_EVENT_NET_ACCEPT) {
+      my_state->net_vc = (TSVConn) edata;
+      stats_process_accept(contp, my_state);
+    } else if (edata == my_state->read_vio)
+      stats_process_read(contp, event, my_state);
+    else if (edata == my_state->write_vio)
+      stats_process_write(contp, event, my_state);
+    else
+      TSReleaseAssert(!"Unexpected Event");
+  
+    return 0;
   }
 
   static int
@@ -258,7 +462,8 @@
     memset(my_state, 0, sizeof(*my_state));
   
     my_state->recordTypes = config->recordTypes;
-    get_stats(my_state, txn);
+    my_state->txn = txn;
+    get_stats(my_state);
     TSDebug(DEBUG_TAG, "%s(): inf %s", __FUNCTION__, my_state->interfaceName );
     TSDebug(DEBUG_TAG, "%s(): speed: %d", __FUNCTION__, my_state->speed);
     
