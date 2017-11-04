@@ -141,7 +141,7 @@
 
   static void json_out_stat(TSRecordType rec_type, void *edata, int registered, const char *name, TSRecordDataType data_type, TSRecordData *datum) 
   {
-    stats_state *my_state = edata;
+    stats_state *my_state = (stats_state *)edata;
     int found = 0;
     int i;
   
@@ -437,7 +437,7 @@
   
   static int stats_dostuff(TSCont contp, TSEvent event, void *edata) 
   {
-    stats_state *my_state = TSContDataGet(contp);
+    stats_state *my_state = (stats_state *)TSContDataGet(contp);
     if (event == TS_EVENT_NET_ACCEPT) {
       my_state->net_vc = (TSVConn) edata;
       stats_process_accept(contp, my_state);
@@ -492,7 +492,7 @@
       TSDebug(DEBUG_TAG, "Plugin registration succeeded");
     }
   
-    config                      = TSmalloc(sizeof(config_t));
+    config                      = (config_t *)TSmalloc(sizeof(config_t));
     config->persist_type        = TS_STAT_NON_PERSISTENT;
     config->stat_creation_mutex = TSMutexCreate();
   
