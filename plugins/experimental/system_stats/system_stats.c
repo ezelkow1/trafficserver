@@ -66,6 +66,8 @@
     int globals_cnt;
     char **globals;
     char *interfaceName;
+    char *dev;
+    char *load;
     char *query;
     int speed;
     unsigned int recordTypes;
@@ -336,11 +338,11 @@
     stats_fillState(my_state, query, strlen(query));
 
     //add interface name
-    APPEND_STAT("inf.name", "\"%s\"", my_state->interfaceName);
+    //APPEND_STAT("inf.name", "\"%s\"", my_state->interfaceName);
 
     //add inf speed
     my_state->speed = getSpeed(my_state->interfaceName);    
-    APPEND_STAT("inf.speed", "%d", my_state->speed);
+    //APPEND_STAT("inf.speed", "%d", my_state->speed);
 
     str = getFile("/proc/net/dev", buffer, bsize);
     if (str && my_state->interfaceName) {
@@ -349,7 +351,8 @@
         end = strstr(str, "\n");
         if (end)
           *end = 0;
-        APPEND_STAT("proc.net.dev", "\"%s\"", str);
+        //APPEND_STAT("proc.net.dev", "\"%s\"", str);
+        my_state->dev = str;
       }
     }
     
@@ -358,12 +361,14 @@
       end = strstr(str, "\n");
       if (end)
         *end = 0;
-      APPEND_STAT("proc.loadavg", "\"%s\"", str);
+      //APPEND_STAT("proc.loadavg", "\"%s\"", str);
+      my_state->load = str;
     }
 
     return;
   }
 
+#if 0  
   static void json_out_stats(stats_state *my_state) {
     const char *version;
     TSDebug(PLUGIN_NAME, "recordTypes: '0x%x'", my_state->recordTypes);
@@ -390,13 +395,14 @@
   
     APPEND("\n}\n");
   }
-  
+#endif
+
   static void stats_process_write(TSCont contp, TSEvent event, stats_state *my_state) {
     if (event == TS_EVENT_VCONN_WRITE_READY) {
       if (my_state->body_written == 0) {
         TSDebug(PLUGIN_NAME, "plugin adding response body");
         my_state->body_written = 1;
-        json_out_stats(my_state);
+        //json_out_stats(my_state);
         TSVIONBytesSet(my_state->write_vio, my_state->output_bytes);
       }
       TSVIOReenable(my_state->write_vio);
