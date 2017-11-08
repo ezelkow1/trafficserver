@@ -304,6 +304,10 @@
     my_state->txn = txn;
     get_stats(my_state);
     TSDebug(DEBUG_TAG, "%s(): inf %s", __FUNCTION__, my_state->interfaceName );
+    TSReturnCode code = TSMgmtStringCreate(TS_RECORDTYPE_CONFIG, INTERFACE, "new name",
+    TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
+
+    TSDebug(DEBUG_TAG, "%s(): rcode: %d", __FUNCTION__, code);
     TSDebug(DEBUG_TAG, "%s(): speed: %d", __FUNCTION__, my_state->speed);
     
     TSDebug(DEBUG_TAG, "Read Req Handler Finished");
@@ -315,16 +319,21 @@
   {
     //stat_add(INTERFACE, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
     TSMutexLock(config->stat_creation_mutex);
-    TSMgmtStringCreate(TS_RECORDTYPE_CONFIG, "my.interface.name", "test",
+    TSMgmtStringCreate(TS_RECORDTYPE_CONFIG, INTERFACE, "test",
     TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
     
     //RecRegisterStatString(RECT_PLUGIN, "my.interfae.name", INTERFACE, RECP_NON_PERSISTENT);
 TSMutexUnlock(config->stat_creation_mutex);
     stat_add(SPEED, TS_RECORDDATATYPE_INT, config->stat_creation_mutex);
     stat_add(RECORD_TYPES, TS_RECORDDATATYPE_INT, config->stat_creation_mutex);
-    stat_add(NET_DEV, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
-    stat_add(LOAD_AVG, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
-
+    //stat_add(NET_DEV, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
+    //TSMgmtStringCreate(TS_RECORDTYPE_PLUGIN, NET_DEV, "test",
+    //TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
+    
+    //stat_add(LOAD_AVG, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
+    //TSMgmtStringCreate(TS_RECORDTYPE_PLUGIN, LOAD_AVG, "test",
+    //TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
+    
     return 0;
   }
 
