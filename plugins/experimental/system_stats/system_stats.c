@@ -314,9 +314,10 @@
   static int init_stats(config_t *config)
   {
     //stat_add(INTERFACE, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
-    TSMgmtStringCreate(TS_RECORDTYPE_PROCESS, "my.interface.name", "default value",
+    TSMutexLock(config->stat_creation_mutex);
+    TSMgmtStringCreate(TS_RECORDTYPE_CONFIG, "my.interface.name", "test",
     TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
-
+TSMutexUnlock(config->stat_creation_mutex);
     stat_add(SPEED, TS_RECORDDATATYPE_INT, config->stat_creation_mutex);
     stat_add(RECORD_TYPES, TS_RECORDDATATYPE_INT, config->stat_creation_mutex);
     stat_add(NET_DEV, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
