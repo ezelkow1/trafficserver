@@ -37,7 +37,7 @@
   #include <unistd.h>
   #include <netinet/in.h>
   #include <arpa/inet.h>
-
+  #include <ftw.h>
 
   #define PLUGIN_NAME "system_stats"
   #define DEBUG_TAG PLUGIN_NAME
@@ -51,26 +51,48 @@
 
   typedef struct 
   {
-    unsigned int recordTypes;
-    int txn_slot;
     TSStatPersistence persist_type;
     TSMutex stat_creation_mutex;
   } config_t;
 
+  
+  typedef struct
+  {
+    int bytes;
+    int packets;
+    int errs;
+    int drop;
+    int fifo;
+    int compressed;
+  } standard_net_stats;
+
+  typedef struct
+  {
+    char *interfaceName;
+    standard_net_stats rx;
+    standard_net_stats tx;
+    int collisions;
+    int multicast;
+    int speed;
+  } sys_net_stats;
+
+  typedef struct
+  {
+    int one_minute;
+    int five_minute;
+    int ten_minute;
+    int   running_processes;
+    int   total_processes;
+    int   last_pid;
+  } load_avg;
+
   typedef struct 
   {
-    TSHttpTxn txn;
-
-    int globals_cnt;
-    char **globals;
-    char *interfaceName;
-    char *dev;
-    char *load;
-    char *query;
-    int speed;
-    unsigned int recordTypes;
+    sys_net_stats net_stats;
+    load_avg      load_stats;
+    TSMutex stat_creation_mutex;
   } stats_state;
-  
+
   int configReloadRequests = 0;
   int configReloads = 0;
   time_t lastReloadRequest = 0;
@@ -97,24 +119,12 @@
     return mys;
   }
 
-  static void
+  static int
   stat_add(char *name, TSRecordDataType record_type, TSMutex create_mutex)
   {
     int stat_id = -1;
-    ENTRY search, *result = NULL;
-    static __thread bool hash_init = false;
-  
-    if (unlikely(!hash_init)) {
-      hcreate(TS_MAX_API_STATS << 1);
-      hash_init = true;
-      TSDebug(DEBUG_TAG, "stat cache hash init");
-    }
-  
-    search.key  = name;
-    search.data = 0;
-    result = hsearch(search, FIND);
-  
-    if (unlikely(result == NULL)) {
+
+    //if (unlikely(result == NULL)) {
       // This is an unlikely path because we most likely have the stat cached
       // so this mutex won't be much overhead and it fixes a race condition
       // in the RecCore. Hopefully this can be removed in the future.
@@ -128,67 +138,8 @@
         }
       }
       TSMutexUnlock(create_mutex);
-  
-      if (stat_id >= 0) {
-        search.key  = TSstrdup(name);
-        search.data = (void *)((intptr_t)stat_id);
-        result = hsearch(search, ENTER);
-        TSDebug(DEBUG_TAG, "Cached stat_name: %s stat_id: %d", name, stat_id);
-      }
-    } else {
-      stat_id = (int)((intptr_t)result->data);
-    }
-  }
 
-  static char ** parseGlobals(char *str, int *globals_cnt) 
-  {
-    char *tok = 0;
-    char **globals = 0;
-    char **old = 0;
-    int globals_size = 0, cnt = 0, i;
-  
-    while (1) {
-      tok = strtok_r(str, ";", &str);
-      if (!tok)
-        break;
-      if (cnt >= globals_size) {
-        old = globals;
-        globals = (char **) TSmalloc(sizeof(char *) * (globals_size + 20));
-        if (old) {
-          memcpy(globals, old, sizeof(char *) * (globals_size));
-          TSfree(old);
-          old = NULL;
-        }
-        globals_size += 20;
-      }
-      globals[cnt] = tok;
-      cnt++;
-    }
-    *globals_cnt = cnt;
-  
-    for (i = 0; i < cnt; i++)
-      TSDebug(PLUGIN_NAME, "globals[%d]: '%s'", i, globals[i]);
-  
-    return globals;
-  }
-
-  static void stats_fillState(stats_state *my_state, char *query, int query_len) 
-  {
-    char* arg = 0;
-
-    while (1) {
-      arg = strtok_r(query, "&", &query);
-      if (!arg)
-        break;
-      if (strstr(arg, "application=")) {
-        arg = arg + strlen("application=");
-        my_state->globals = parseGlobals(arg, &my_state->globals_cnt);
-      } else if (strstr(arg, "inf.name=")) {
-        my_state->interfaceName = arg + strlen("inf.name=");
-      } else if(strstr(arg, "record.types=")) {
-        my_state->recordTypes = strtol(arg + strlen("record.types="), NULL, 16);
-      }
-    }
+      return stat_id;
   }
 
   static char * getFile(char *filename, char *buffer, int bufferSize) 
@@ -214,76 +165,22 @@
     return buffer;
   }
 
-  static int getSpeed(char *inf) 
-  {
-    char* str;
-    char b[256];
-    int speed = 0;
-    char buffer[2024];
-    int bsize = 2024;
-
-    snprintf(b, sizeof(b), "/sys/class/net/%s/operstate", inf);
-    str = getFile(b, buffer, bsize);
-    if (str && strstr(str, "up"))
-    {
-      snprintf(b, sizeof(b), "/sys/class/net/%s/speed", inf);
-      str = getFile(b, buffer, bsize);
-      speed = strtol(str, 0, 10);
-    }
-
-    return speed;
-  }
-
-  static char * get_query(TSHttpTxn txn)
-  {
-    TSMBuffer reqp;
-    TSMLoc hdr_loc = NULL, url_loc = NULL;
-    TSHttpTxnClientReqGet(txn, &reqp, &hdr_loc);
-    TSHttpHdrUrlGet(reqp, hdr_loc, &url_loc);
-    int query_len;
-    char *query_unterminated = (char*)TSUrlHttpQueryGet(reqp,url_loc,&query_len);
-    char *query = nstrl(query_unterminated, query_len);
-    return query;
-  }
-
   static void get_stats(stats_state *my_state)
   {
-    char buffer[2024];
-    int bsize = 2024;
-    char *str;
-    char *end;
-    char *query;
+    double loadavg[3] = {0,0,0};
+    int stat_id;
+    getloadavg(loadavg, 3);
 
-    query = get_query(my_state->txn);
-    stats_fillState(my_state, query, strlen(query));
+    /* Convert the doubles to int */
+    char *stat_name = "plugin." PLUGIN_NAME ".loadavg.one";
+    stat_id = stat_add(stat_name, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
+    my_state->load_stats.one_minute = loadavg[0]*100;
+    TSStatIntSet(stat_id, my_state->load_stats.one_minute);
+    my_state->load_stats.five_minute = loadavg[1]*100;
+    my_state->load_stats.ten_minute = loadavg[2]*100;
 
-    //add interface name
-    //APPEND_STAT("inf.name", "\"%s\"", my_state->interfaceName);
-
-    //add inf speed
-    my_state->speed = getSpeed(my_state->interfaceName);    
-    //APPEND_STAT("inf.speed", "%d", my_state->speed);
-
-    str = getFile("/proc/net/dev", buffer, bsize);
-    if (str && my_state->interfaceName) {
-      str = strstr(str, my_state->interfaceName);
-      if (str) {
-        end = strstr(str, "\n");
-        if (end)
-          *end = 0;
-        //APPEND_STAT("proc.net.dev", "\"%s\"", str);
-        my_state->dev = str;
-      }
-    }
-    
-    str = getFile("/proc/loadavg", buffer, bsize);
-    if (str) {
-      end = strstr(str, "\n");
-      if (end)
-        *end = 0;
-      //APPEND_STAT("proc.loadavg", "\"%s\"", str);
-      my_state->load = str;
-    }
+    TSDebug(DEBUG_TAG, "Load: %d, %d, %d", my_state->load_stats.one_minute, my_state->load_stats.five_minute,
+    my_state->load_stats.ten_minute);
 
     return;
   }
@@ -299,41 +196,11 @@
 
     my_state = (stats_state *) TSmalloc(sizeof(*my_state));
     memset(my_state, 0, sizeof(*my_state));
-  
-    my_state->recordTypes = config->recordTypes;
-    my_state->txn = txn;
+    my_state->stat_creation_mutex = config->stat_creation_mutex;
     get_stats(my_state);
-    TSDebug(DEBUG_TAG, "%s(): inf %s", __FUNCTION__, my_state->interfaceName );
-    TSReturnCode code = TSMgmtStringCreate(TS_RECORDTYPE_CONFIG, INTERFACE, "new name",
-    TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
 
-    TSDebug(DEBUG_TAG, "%s(): rcode: %d", __FUNCTION__, code);
-    TSDebug(DEBUG_TAG, "%s(): speed: %d", __FUNCTION__, my_state->speed);
-    
     TSDebug(DEBUG_TAG, "Read Req Handler Finished");
     TSHttpTxnReenable(txn, reenable);
-    return 0;
-  }
-
-  static int init_stats(config_t *config)
-  {
-    //stat_add(INTERFACE, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
-    TSMutexLock(config->stat_creation_mutex);
-    TSMgmtStringCreate(TS_RECORDTYPE_CONFIG, INTERFACE, "test",
-    TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
-    
-    //RecRegisterStatString(RECT_PLUGIN, "my.interfae.name", INTERFACE, RECP_NON_PERSISTENT);
-TSMutexUnlock(config->stat_creation_mutex);
-    stat_add(SPEED, TS_RECORDDATATYPE_INT, config->stat_creation_mutex);
-    stat_add(RECORD_TYPES, TS_RECORDDATATYPE_INT, config->stat_creation_mutex);
-    //stat_add(NET_DEV, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
-    //TSMgmtStringCreate(TS_RECORDTYPE_PLUGIN, NET_DEV, "test",
-    //TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
-    
-    //stat_add(LOAD_AVG, TS_RECORDDATATYPE_STRING, config->stat_creation_mutex);
-    //TSMgmtStringCreate(TS_RECORDTYPE_PLUGIN, LOAD_AVG, "test",
-    //TS_RECORDUPDATE_DYNAMIC, TS_RECORDCHECK_NULL, NULL /* check_regex */, TS_RECORDACCESS_READ_ONLY);
-    
     return 0;
   }
 
@@ -358,8 +225,6 @@ TSMutexUnlock(config->stat_creation_mutex);
     config                      = (config_t *)TSmalloc(sizeof(config_t));
     config->persist_type        = TS_STAT_NON_PERSISTENT;
     config->stat_creation_mutex = TSMutexCreate();
-  
-    init_stats(config);
 
     if (argc > 1) {
         //config options if necessary
