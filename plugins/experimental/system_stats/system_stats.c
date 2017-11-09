@@ -41,9 +41,18 @@
 
   #define PLUGIN_NAME "system_stats"
   #define DEBUG_TAG PLUGIN_NAME
+
+  /* Stat string names */
   #define LOAD_AVG_ONE_MIN "plugin." PLUGIN_NAME ".loadavg.one"
   #define LOAD_AVG_FIVE_MIN "plugin." PLUGIN_NAME ".loadavg.five"
   #define LOAD_AVG_TEN_MIN "plugin." PLUGIN_NAME ".loadavg.ten"
+
+  /* 
+   * Base net stats name, full name needs to populated
+   * with NET_STATS.infname.RX/TX.standard_net_stats field
+   * */
+  #define NET_STATS "plugin." PLUGIN_NAME ".net."
+
   /* pre-defined record types for indexing to the hash */
   #define SPEED "speed"
   #define INTERFACE "interface"
@@ -57,7 +66,6 @@
     TSMutex stat_creation_mutex;
   } config_t;
 
-  
   typedef struct
   {
     int bytes;
@@ -100,48 +108,27 @@
   time_t lastReloadRequest = 0;
   time_t lastReload = 0;
   time_t astatsLoad = 0;
-  #define SYSTEM_RECORD_TYPE 		(0x100)
-  #define DEFAULT_RECORD_TYPES	(SYSTEM_RECORD_TYPE | TS_RECORDTYPE_PROCESS | TS_RECORDTYPE_PLUGIN)
-
-
-    #if 0
-  static char * nstr(const char *s) 
-  {
-    char *mys = (char *)TSmalloc(strlen(s)+1);
-    strcpy(mys, s);
-    return mys;
-  }
-  #endif
-
-  static char * nstrl(const char *s, int len) 
-  {
-    char *mys = (char *)TSmalloc(len + 1);
-    memcpy(mys, s, len);
-    mys[len] = 0;
-    return mys;
-  }
 
   static int
   stat_add(char *name, TSRecordDataType record_type, TSMutex create_mutex)
   {
     int stat_id = -1;
 
-    //if (unlikely(result == NULL)) {
-      // This is an unlikely path because we most likely have the stat cached
-      // so this mutex won't be much overhead and it fixes a race condition
-      // in the RecCore. Hopefully this can be removed in the future.
-      TSMutexLock(create_mutex);
-      if (TS_ERROR == TSStatFindName((const char *)name, &stat_id)) {
-        stat_id = TSStatCreate((const char *)name, record_type, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
-        if (stat_id == TS_ERROR) {
-          TSDebug(DEBUG_TAG, "Error creating stat_name: %s", name);
-        } else {
-          TSDebug(DEBUG_TAG, "Created stat_name: %s stat_id: %d", name, stat_id);
-        }
+    TSMutexLock(create_mutex);
+    if (TS_ERROR == TSStatFindName((const char *)name, &stat_id)) 
+    {
+      stat_id = TSStatCreate((const char *)name, record_type, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
+      if (stat_id == TS_ERROR) 
+      {
+        TSDebug(DEBUG_TAG, "Error creating stat_name: %s", name);
+      } 
+      else 
+      {
+        TSDebug(DEBUG_TAG, "Created stat_name: %s stat_id: %d", name, stat_id);
       }
-      TSMutexUnlock(create_mutex);
-
-      return stat_id;
+    }
+    TSMutexUnlock(create_mutex);
+    return stat_id;
   }
 
   static char * getFile(char *filename, char *buffer, int bufferSize) 
@@ -173,26 +160,27 @@
     TSStatIntSet(stat_id, value);
   }
 
+  static int net_stats_info(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf)
+  {
+    TSDebug(DEBUG_TAG, "path: %s, level: %d, base: %d", fpath, ftwbuf->level, ftwbuf->base);
+    return 0;
+  }
+
   static void get_stats(stats_state *my_state)
   {
     double loadavg[3] = {0,0,0};
     getloadavg(loadavg, 3);
 
     /* Convert the doubles to int */
-    //stat_id = stat_add(LOAD_AVG_ONE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
     my_state->load_stats.one_minute = loadavg[0]*100;
-    //TSStatIntSet(stat_id, my_state->load_stats.one_minute);
-    //stat_id = stat_add(LOAD_AVG_FIVE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
     my_state->load_stats.five_minute = loadavg[1]*100;
-    //TSStatIntSet(stat_id, my_state->load_stats.five_minute);
     my_state->load_stats.ten_minute = loadavg[2]*100;
+
     stat_set(LOAD_AVG_ONE_MIN, my_state->load_stats.one_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
 
-    TSDebug(DEBUG_TAG, "Load: %d, %d, %d", my_state->load_stats.one_minute, my_state->load_stats.five_minute,
-    my_state->load_stats.ten_minute);
-
+    ntfw("/sys/class/net", net_stats_info, 10, 0);
     return;
   }
 
