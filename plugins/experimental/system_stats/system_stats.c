@@ -167,20 +167,28 @@
     return buffer;
   }
 
+  static void stat_set(char *name, int value, TSMutex stat_creation_mutex)
+  {
+    int stat_id = stat_add(name, TS_RECORDDATATYPE_INT, stat_creation_mutex);
+    TSStatIntSet(stat_id, value);
+  }
+
   static void get_stats(stats_state *my_state)
   {
     double loadavg[3] = {0,0,0};
-    int stat_id;
     getloadavg(loadavg, 3);
 
     /* Convert the doubles to int */
-    stat_id = stat_add(LOAD_AVG_ONE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
+    //stat_id = stat_add(LOAD_AVG_ONE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
     my_state->load_stats.one_minute = loadavg[0]*100;
-    TSStatIntSet(stat_id, my_state->load_stats.one_minute);
-    stat_id = stat_add(LOAD_AVG_FIVE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
+    //TSStatIntSet(stat_id, my_state->load_stats.one_minute);
+    //stat_id = stat_add(LOAD_AVG_FIVE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
     my_state->load_stats.five_minute = loadavg[1]*100;
-    TSStatIntSet(stat_id, my_state->load_stats.five_minute);
+    //TSStatIntSet(stat_id, my_state->load_stats.five_minute);
     my_state->load_stats.ten_minute = loadavg[2]*100;
+    stat_set(LOAD_AVG_ONE_MIN, my_state->load_stats.one_minute, my_state->stat_creation_mutex);
+    stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
+    stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
 
     TSDebug(DEBUG_TAG, "Load: %d, %d, %d", my_state->load_stats.one_minute, my_state->load_stats.five_minute,
     my_state->load_stats.ten_minute);
