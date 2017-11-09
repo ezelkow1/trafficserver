@@ -41,7 +41,9 @@
 
   #define PLUGIN_NAME "system_stats"
   #define DEBUG_TAG PLUGIN_NAME
-
+  #define LOAD_AVG_ONE_MIN "plugin." PLUGIN_NAME ".loadavg.one"
+  #define LOAD_AVG_FIVE_MIN "plugin." PLUGIN_NAME ".loadavg.five"
+  #define LOAD_AVG_TEN_MIN "plugin." PLUGIN_NAME ".loadavg.ten"
   /* pre-defined record types for indexing to the hash */
   #define SPEED "speed"
   #define INTERFACE "interface"
@@ -172,11 +174,12 @@
     getloadavg(loadavg, 3);
 
     /* Convert the doubles to int */
-    char *stat_name = "plugin." PLUGIN_NAME ".loadavg.one";
-    stat_id = stat_add(stat_name, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
+    stat_id = stat_add(LOAD_AVG_ONE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
     my_state->load_stats.one_minute = loadavg[0]*100;
     TSStatIntSet(stat_id, my_state->load_stats.one_minute);
+    stat_id = stat_add(LOAD_AVG_FIVE_MIN, TS_RECORDDATATYPE_INT, my_state->stat_creation_mutex);
     my_state->load_stats.five_minute = loadavg[1]*100;
+    TSStatIntSet(stat_id, my_state->load_stats.five_minute);
     my_state->load_stats.ten_minute = loadavg[2]*100;
 
     TSDebug(DEBUG_TAG, "Load: %d, %d, %d", my_state->load_stats.one_minute, my_state->load_stats.five_minute,
