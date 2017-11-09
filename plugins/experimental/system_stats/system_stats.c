@@ -60,6 +60,8 @@
   #define NET_DEV "net_dev"
   #define LOAD_AVG "load_avg"
 
+  #define NET_STATS_DIR "/sys/class/net"
+
   typedef struct 
   {
     TSStatPersistence persist_type;
@@ -160,10 +162,13 @@
     TSStatIntSet(stat_id, value);
   }
 
-  static int net_stats_info()
+  static int net_stats_info(stats_state *my_state)
   {
     struct dirent* dent;
-    DIR* srcdir = opendir("/sys/class/net");
+    DIR* srcdir = opendir(NET_STATS_DIR);
+    char entry_name[255];
+    char base_name[255];
+    char data[255];
 
     if (srcdir == NULL)
     {
@@ -177,6 +182,12 @@
         continue;
       }
       TSDebug(DEBUG_TAG, " subdir name: %s", dent->d_name);
+      memset(&base_name[0], 0, sizeof(base_name));
+      snprintf(&base_name[0], sizeof(base_name), "%s%s.speed",NET_STATS, dent->d_name);
+      snprintf(&entry_name[0], sizeof(entry_name),"%s/%s/speed", NET_STATS_DIR, dent->d_name);
+      getFile(&entry_name[0], &data[0], sizeof(data));
+      stat_set(base_name, atoi(data), my_state->stat_creation_mutex);
+
     }
     return 0;
   }
@@ -194,7 +205,7 @@
     stat_set(LOAD_AVG_ONE_MIN, my_state->load_stats.one_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
-    net_stats_info();
+    net_stats_info(my_state);
     return;
   }
 
