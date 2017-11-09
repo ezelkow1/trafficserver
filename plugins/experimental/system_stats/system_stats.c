@@ -180,7 +180,7 @@
     stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
 
-    ntfw("/sys/class/net", net_stats_info, 10, 0);
+    nftw("/sys/class/net", net_stats_info, 10, 0);
     return;
   }
 
