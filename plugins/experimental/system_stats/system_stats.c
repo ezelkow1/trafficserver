@@ -37,7 +37,7 @@
   #include <unistd.h>
   #include <netinet/in.h>
   #include <arpa/inet.h>
-  #include <ftw.h>
+  
 
   #define PLUGIN_NAME "system_stats"
   #define DEBUG_TAG PLUGIN_NAME
@@ -160,10 +160,24 @@
     TSStatIntSet(stat_id, value);
   }
 
-  static int net_stats_info(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf)
+  static int net_stats_info()
   {
-    TSDebug(DEBUG_TAG, "path: %s, level: %d, base: %d", fpath, ftwbuf->level, ftwbuf->base);
-    return FTW_SKIP_SUBTREE;
+    struct dirent* dent;
+    DIR* srcdir = opendir("/sys/class/net");
+
+    if (srcdir == NULL)
+    {
+      return 0;
+    }
+
+    while ((dent = readdir(srcdir)) != NULL)
+    {
+      if (strcmp(dent->d_name, ".") == 0 || strcmp(dent->d_name, "..") == 0)
+      {
+        continue;
+      }
+      TSDebug(DEBUG_TAG, " subdir name: %s", dent->d_name);
+    }
   }
 
   static void get_stats(stats_state *my_state)
