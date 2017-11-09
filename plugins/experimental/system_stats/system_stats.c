@@ -163,7 +163,7 @@
   static int net_stats_info(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf)
   {
     TSDebug(DEBUG_TAG, "path: %s, level: %d, base: %d", fpath, ftwbuf->level, ftwbuf->base);
-    return 0;
+    return FTW_SKIP_SUBTREE;
   }
 
   static void get_stats(stats_state *my_state)
@@ -180,7 +180,7 @@
     stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
 
-    nftw("/sys/class/net", net_stats_info, 10, 0);
+    nftw("/sys/class/net", net_stats_info, 10, FTW_ACTIONRETVAL);
     return;
   }
 
