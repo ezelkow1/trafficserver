@@ -162,6 +162,29 @@
     TSStatIntSet(stat_id, value);
   }
 
+  static void set_net_stat(stats_state *my_state, char *subdir, char *entry, int level)
+  {
+    char entry_name[255];
+    char base_name[255];
+    char data[255];
+
+    memset(&base_name[0], 0, sizeof(base_name));
+    memset(&entry_name[0], 0, sizeof(entry_name));
+    memset(&data[0], 0, sizeof(data));
+
+    snprintf(&base_name[0], sizeof(base_name), "%s%s.%s", NET_STATS, subdir, entry);
+    if (level == 0)
+    {
+      snprintf(&entry_name[0], sizeof(entry_name), "%s/%s/%s", NET_STATS_DIR, subdir, entry);
+    }
+    else{
+      snprintf(&entry_name[0], sizeof(entry_name), "%s/%s/statistics/%s", NET_STATS_DIR, subdir, entry);
+    }
+
+    getFile(&entry_name[0], &data[0], sizeof(data));
+    stat_set(base_name, atoi(data), my_state->stat_creation_mutex);
+
+  }
   static int net_stats_info(stats_state *my_state)
   {
     struct dirent* dent;
@@ -183,11 +206,14 @@
       }
       TSDebug(DEBUG_TAG, " subdir name: %s", dent->d_name);
       memset(&base_name[0], 0, sizeof(base_name));
-      snprintf(&base_name[0], sizeof(base_name), "%s%s.speed",NET_STATS, dent->d_name);
-      snprintf(&entry_name[0], sizeof(entry_name),"%s/%s/speed", NET_STATS_DIR, dent->d_name);
-      getFile(&entry_name[0], &data[0], sizeof(data));
-      stat_set(base_name, atoi(data), my_state->stat_creation_mutex);
-
+      memset(&entry_name[0], 0, sizeof(entry_name));
+      //snprintf(&base_name[0], sizeof(base_name), "%s%s.speed",NET_STATS, dent->d_name);
+      //snprintf(&entry_name[0], sizeof(entry_name),"%s/%s/speed", NET_STATS_DIR, dent->d_name);
+      //getFile(&entry_name[0], &data[0], sizeof(data));
+      //stat_set(base_name, atoi(data), my_state->stat_creation_mutex);
+      set_net_stat(my_state, dent->d_name, "speed", 0);
+      set_net_stat(my_state, dent->d_name, "collisions", 1);
+      set_net_stat(my_state, dent->d_name, "rx_bytes", 1);
     }
     return 0;
   }
