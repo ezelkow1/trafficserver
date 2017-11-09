@@ -178,6 +178,7 @@
       }
       TSDebug(DEBUG_TAG, " subdir name: %s", dent->d_name);
     }
+    return 0;
   }
 
   static void get_stats(stats_state *my_state)
@@ -193,8 +194,7 @@
     stat_set(LOAD_AVG_ONE_MIN, my_state->load_stats.one_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
-
-    nftw("/sys/class/net", net_stats_info, 10, FTW_ACTIONRETVAL);
+    net_stats_info();
     return;
   }
 
