@@ -42,7 +42,10 @@
   #define PLUGIN_NAME "system_stats"
   #define DEBUG_TAG PLUGIN_NAME
 
-  /* Stat string names */
+  /* Stat string names. These are for easily grabbable ones
+  that dont need to be parsed from a directory tree */
+
+  /******** Load Average Strings *****************/
   #define LOAD_AVG_ONE_MIN "plugin." PLUGIN_NAME ".loadavg.one"
   #define LOAD_AVG_FIVE_MIN "plugin." PLUGIN_NAME ".loadavg.five"
   #define LOAD_AVG_TEN_MIN "plugin." PLUGIN_NAME ".loadavg.ten"
@@ -52,13 +55,6 @@
    * with NET_STATS.infname.RX/TX.standard_net_stats field
    * */
   #define NET_STATS "plugin." PLUGIN_NAME ".net."
-
-  /* pre-defined record types for indexing to the hash */
-  #define SPEED "speed"
-  #define INTERFACE "interface"
-  #define RECORD_TYPES "record_types"
-  #define NET_DEV "net_dev"
-  #define LOAD_AVG "load_avg"
 
   #define NET_STATS_DIR "/sys/class/net"
 
@@ -111,8 +107,7 @@
   time_t lastReload = 0;
   time_t astatsLoad = 0;
 
-  static int
-  stat_add(char *name, TSRecordDataType record_type, TSMutex create_mutex)
+  static int stat_add(char *name, TSRecordDataType record_type, TSMutex create_mutex)
   {
     int stat_id = -1;
 
@@ -172,7 +167,12 @@
     memset(&sysfs_name[0], 0, sizeof(sysfs_name));
     memset(&data[0], 0, sizeof(data));
 
+    /* Generate the ATS stats name */
     snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, subdir, entry);
+
+    /* Determine if this is a toplevel netdev stat, or one from stastistics.
+      This could be handled much better
+      */
     if (level == 0)
     {
       snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s", NET_STATS_DIR, subdir, entry);
@@ -186,6 +186,7 @@
     stat_set(stat_name, atoi(data), my_state->stat_creation_mutex);
 
   }
+
   static int net_stats_info(stats_state *my_state)
   {
     struct dirent* dent;
@@ -257,10 +258,13 @@
     info.vendor_name   = "Apache Software Foundation";
     info.support_email = "dev@trafficserver.apache.org";
   
-    if (TSPluginRegister(&info) != TS_SUCCESS) {
+    if (TSPluginRegister(&info) != TS_SUCCESS) 
+    {
       TSError("[system_stats] Plugin registration failed");
       return;
-    } else {
+    } 
+    else 
+    {
       TSDebug(DEBUG_TAG, "Plugin registration succeeded");
     }
   
@@ -268,7 +272,8 @@
     config->persist_type        = TS_STAT_NON_PERSISTENT;
     config->stat_creation_mutex = TSMutexCreate();
 
-    if (argc > 1) {
+    if (argc > 1) 
+    {
         //config options if necessary
     }
 
