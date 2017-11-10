@@ -164,34 +164,32 @@
 
   static void set_net_stat(stats_state *my_state, char *subdir, char *entry, int level)
   {
-    char entry_name[255];
-    char base_name[255];
+    char sysfs_name[255];
+    char stat_name[255];
     char data[255];
 
-    memset(&base_name[0], 0, sizeof(base_name));
-    memset(&entry_name[0], 0, sizeof(entry_name));
+    memset(&stat_name[0], 0, sizeof(stat_name));
+    memset(&sysfs_name[0], 0, sizeof(sysfs_name));
     memset(&data[0], 0, sizeof(data));
 
-    snprintf(&base_name[0], sizeof(base_name), "%s%s.%s", NET_STATS, subdir, entry);
+    snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, subdir, entry);
     if (level == 0)
     {
-      snprintf(&entry_name[0], sizeof(entry_name), "%s/%s/%s", NET_STATS_DIR, subdir, entry);
+      snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s", NET_STATS_DIR, subdir, entry);
     }
-    else{
-      snprintf(&entry_name[0], sizeof(entry_name), "%s/%s/statistics/%s", NET_STATS_DIR, subdir, entry);
+    else
+    {
+      snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/statistics/%s", NET_STATS_DIR, subdir, entry);
     }
 
-    getFile(&entry_name[0], &data[0], sizeof(data));
-    stat_set(base_name, atoi(data), my_state->stat_creation_mutex);
+    getFile(&sysfs_name[0], &data[0], sizeof(data));
+    stat_set(stat_name, atoi(data), my_state->stat_creation_mutex);
 
   }
   static int net_stats_info(stats_state *my_state)
   {
     struct dirent* dent;
     DIR* srcdir = opendir(NET_STATS_DIR);
-    char entry_name[255];
-    char base_name[255];
-    char data[255];
 
     if (srcdir == NULL)
     {
@@ -205,12 +203,7 @@
         continue;
       }
       TSDebug(DEBUG_TAG, " subdir name: %s", dent->d_name);
-      memset(&base_name[0], 0, sizeof(base_name));
-      memset(&entry_name[0], 0, sizeof(entry_name));
-      //snprintf(&base_name[0], sizeof(base_name), "%s%s.speed",NET_STATS, dent->d_name);
-      //snprintf(&entry_name[0], sizeof(entry_name),"%s/%s/speed", NET_STATS_DIR, dent->d_name);
-      //getFile(&entry_name[0], &data[0], sizeof(data));
-      //stat_set(base_name, atoi(data), my_state->stat_creation_mutex);
+
       set_net_stat(my_state, dent->d_name, "speed", 0);
       set_net_stat(my_state, dent->d_name, "collisions", 1);
       set_net_stat(my_state, dent->d_name, "rx_bytes", 1);
@@ -258,7 +251,6 @@
   {
     TSPluginRegistrationInfo info;
     TSCont stats_cont;
-    //TSCont pre_remap_cont, post_remap_cont, global_cont;
     config_t *config;
   
     info.plugin_name   = PLUGIN_NAME;
@@ -279,14 +271,7 @@
     if (argc > 1) {
         //config options if necessary
     }
-  
-    #if 0
-        TSHttpArgIndexReserve(PLUGIN_NAME, "txn data", &(config->txn_slot));
-      
-        global_cont = TSContCreate(handle_txn_close, NULL);
-        TSContDataSet(global_cont, (void *)config);
-        TSHttpHookAdd(TS_HTTP_TXN_CLOSE_HOOK, global_cont);
-    #endif  
+
     stats_cont = TSContCreate(handle_read_req_hdr, NULL);
     TSContDataSet(stats_cont, (void *)config);
     TSHttpHookAdd(TS_HTTP_READ_REQUEST_HDR_HOOK, stats_cont);
@@ -295,6 +280,6 @@
      * an initial state
      * ****/
       //get_stats();
-        TSDebug(DEBUG_TAG, "Init complete");
+    TSDebug(DEBUG_TAG, "Init complete");
   }
   
