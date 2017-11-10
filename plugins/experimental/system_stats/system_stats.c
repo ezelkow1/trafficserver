@@ -67,43 +67,6 @@
     TSMutex stat_creation_mutex;
   } config_t;
 
-  typedef struct
-  {
-    int bytes;
-    int packets;
-    int errs;
-    int drop;
-    int fifo;
-    int compressed;
-  } standard_net_stats;
-
-  typedef struct
-  {
-    char *interfaceName;
-    standard_net_stats rx;
-    standard_net_stats tx;
-    int collisions;
-    int multicast;
-    int speed;
-  } sys_net_stats;
-
-  typedef struct
-  {
-    int one_minute;
-    int five_minute;
-    int ten_minute;
-    int   running_processes;
-    int   total_processes;
-    int   last_pid;
-  } load_avg;
-
-  typedef struct 
-  {
-    sys_net_stats net_stats;
-    load_avg      load_stats;
-    TSMutex stat_creation_mutex;
-  } stats_state;
-
   int configReloadRequests = 0;
   int configReloads = 0;
   time_t lastReloadRequest = 0;
@@ -120,7 +83,7 @@
   {
     int stat_id = -1;
 
-    TSMutexLock(create_mutex);
+    //TSMutexLock(create_mutex);
     if (TS_ERROR == TSStatFindName((const char *)name, &stat_id)) 
     {
       stat_id = TSStatCreate((const char *)name, record_type, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
@@ -133,7 +96,7 @@
         TSDebug(DEBUG_TAG, "Created stat_name: %s stat_id: %d", name, stat_id);
       }
     }
-    TSMutexUnlock(create_mutex);
+    //TSMutexUnlock(create_mutex);
     return stat_id;
   }
   
@@ -166,7 +129,7 @@
     TSStatIntSet(stat_id, value);
   }
 
-  static void set_net_stat(stats_state *my_state, char *subdir, char *entry, int level)
+  static void set_net_stat(TSMutex stat_creation_mutex, char *subdir, char *entry, int level)
   {
     char sysfs_name[255];
     char stat_name[255];
@@ -192,11 +155,11 @@
     }
 
     getFile(&sysfs_name[0], &data[0], sizeof(data));
-    stat_set(stat_name, atoi(data), my_state->stat_creation_mutex);
+    stat_set(stat_name, atoi(data), stat_creation_mutex);
 
   }
 
-  static int net_stats_info(stats_state *my_state)
+  static int net_stats_info(TSMutex stat_creation_mutex)
   {
     struct dirent* dent;
     DIR* srcdir = opendir(NET_STATS_DIR);
@@ -215,52 +178,41 @@
         continue;
       }
 
-      set_net_stat(my_state, dent->d_name, "speed", 0);
-      set_net_stat(my_state, dent->d_name, "collisions", 1);
-      set_net_stat(my_state, dent->d_name, "multicast", 1);
-      set_net_stat(my_state, dent->d_name, "rx_bytes", 1);
-      set_net_stat(my_state, dent->d_name, "rx_compressed", 1);
-      set_net_stat(my_state, dent->d_name, "rx_crc_errors", 1);
-      set_net_stat(my_state, dent->d_name, "rx_dropped", 1);
-      set_net_stat(my_state, dent->d_name, "rx_errors", 1);      
-      set_net_stat(my_state, dent->d_name, "rx_fifo_errors", 1);      
-      set_net_stat(my_state, dent->d_name, "rx_frame_errors", 1);
-      set_net_stat(my_state, dent->d_name, "rx_length_errors", 1);
-      set_net_stat(my_state, dent->d_name, "rx_missed_errors", 1);
-      set_net_stat(my_state, dent->d_name, "rx_nohandler", 1);
-      set_net_stat(my_state, dent->d_name, "rx_over_errors", 1);
-      set_net_stat(my_state, dent->d_name, "rx_packets", 1);
-      set_net_stat(my_state, dent->d_name, "tx_aborted_errors", 1);
-      set_net_stat(my_state, dent->d_name, "tx_bytes", 1);
-      set_net_stat(my_state, dent->d_name, "tx_carrier_errors", 1);
-      set_net_stat(my_state, dent->d_name, "tx_compressed", 1);
-      set_net_stat(my_state, dent->d_name, "tx_dropped", 1);
-      set_net_stat(my_state, dent->d_name, "tx_errors", 1);
-      set_net_stat(my_state, dent->d_name, "tx_fifo_errors", 1);
-      set_net_stat(my_state, dent->d_name, "tx_heartbeat_errors", 1);
-      set_net_stat(my_state, dent->d_name, "tx_packets", 1);
-      set_net_stat(my_state, dent->d_name, "tx_window_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "speed", 0);
+      set_net_stat(stat_creation_mutex, dent->d_name, "collisions", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "multicast", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_bytes", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_compressed", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_crc_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_dropped", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_errors", 1);      
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_fifo_errors", 1);      
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_frame_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_length_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_missed_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_nohandler", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_over_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "rx_packets", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_aborted_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_bytes", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_carrier_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_compressed", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_dropped", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_fifo_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_heartbeat_errors", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_packets", 1);
+      set_net_stat(stat_creation_mutex, dent->d_name, "tx_window_errors", 1);
     }
     return 0;
   }
 #endif
 
-  static void get_stats(stats_state *my_state)
+  static void get_stats(TSMutex stat_creation_mutex)
   {
     double loadavg[3] = {0,0,0};
 
-    if (my_state == NULL)
-    {
-      TSError("%s(): Null state", __FUNCTION__);
-      return;
-    }
-
     getloadavg(loadavg, 3);
-
-    /* Convert the doubles to int */
-    my_state->load_stats.one_minute = loadavg[0]*100;
-    my_state->load_stats.five_minute = loadavg[1]*100;
-    my_state->load_stats.ten_minute = loadavg[2]*100;
 
     /**********************************************
      * We should only be grabbing these on a linux
@@ -268,10 +220,10 @@
      * do not have a proc or sysfs system
      * ********************************************/
 #if defined (__linux__) 
-    stat_set(LOAD_AVG_ONE_MIN, my_state->load_stats.one_minute, my_state->stat_creation_mutex);
-    stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
-    stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
-    net_stats_info(my_state);
+    stat_set(LOAD_AVG_ONE_MIN, loadavg[0]*100, stat_creation_mutex);
+    stat_set(LOAD_AVG_FIVE_MIN, loadavg[1]*100, stat_creation_mutex);
+    stat_set(LOAD_AVG_TEN_MIN, loadavg[2]*100, stat_creation_mutex);
+    net_stats_info(stat_creation_mutex);
 #endif    
     return;
   }
@@ -279,16 +231,11 @@
   static int system_stats_cont_cb(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
   {
     config_t *config;
-    stats_state *my_state;
 
     TSDebug(DEBUG_TAG, "entered %s", __FUNCTION__);
 
     config = (config_t *)TSContDataGet(cont);
-
-    my_state = (stats_state *) TSmalloc(sizeof(*my_state));
-    memset(my_state, 0, sizeof(*my_state));
-    my_state->stat_creation_mutex = config->stat_creation_mutex;
-    get_stats(my_state);
+    get_stats(config->stat_creation_mutex);
 
     TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
     TSDebug(DEBUG_TAG, "finished %s", __FUNCTION__);;
