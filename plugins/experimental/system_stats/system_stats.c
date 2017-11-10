@@ -213,7 +213,29 @@
 
       set_net_stat(my_state, dent->d_name, "speed", 0);
       set_net_stat(my_state, dent->d_name, "collisions", 1);
+      set_net_stat(my_state, dent->d_name, "multicast", 1);
       set_net_stat(my_state, dent->d_name, "rx_bytes", 1);
+      set_net_stat(my_state, dent->d_name, "rx_compressed", 1);
+      set_net_stat(my_state, dent->d_name, "rx_crc_errors", 1);
+      set_net_stat(my_state, dent->d_name, "rx_dropped", 1);
+      set_net_stat(my_state, dent->d_name, "rx_errors", 1);      
+      set_net_stat(my_state, dent->d_name, "rx_fifo_errors", 1);      
+      set_net_stat(my_state, dent->d_name, "rx_frame_errors", 1);
+      set_net_stat(my_state, dent->d_name, "rx_length_errors", 1);
+      set_net_stat(my_state, dent->d_name, "rx_missed_errors", 1);
+      set_net_stat(my_state, dent->d_name, "rx_nohandler", 1);
+      set_net_stat(my_state, dent->d_name, "rx_over_errors", 1);
+      set_net_stat(my_state, dent->d_name, "rx_packets", 1);
+      set_net_stat(my_state, dent->d_name, "tx_aborted_errors", 1);
+      set_net_stat(my_state, dent->d_name, "tx_bytes", 1);
+      set_net_stat(my_state, dent->d_name, "tx_carrier_errors", 1);
+      set_net_stat(my_state, dent->d_name, "tx_compressed", 1);
+      set_net_stat(my_state, dent->d_name, "tx_dropped", 1);
+      set_net_stat(my_state, dent->d_name, "tx_errors", 1);
+      set_net_stat(my_state, dent->d_name, "tx_fifo_errors", 1);
+      set_net_stat(my_state, dent->d_name, "tx_heartbeat_errors", 1);
+      set_net_stat(my_state, dent->d_name, "tx_packets", 1);
+      set_net_stat(my_state, dent->d_name, "tx_window_errors", 1);
     }
     return 0;
   }
@@ -222,7 +244,7 @@
   static void get_stats(stats_state *my_state)
   {
     double loadavg[3] = {0,0,0};
-      
+
     if (my_state == NULL)
     {
       TSError("%s(): Null state", __FUNCTION__);
