@@ -19,268 +19,247 @@
   limitations under the License.
  */
 
-  #include "ts/ink_config.h"
-  #include "ts/ink_defs.h"
+#include "ts/ink_config.h"
+#include "ts/ink_defs.h"
 
-  #include "ts/ts.h"
-  #include <stdint.h>
-  #include <stdbool.h>
-  #include <string.h>
-  #include <stdio.h>
-  #include <getopt.h>
-  #include <search.h>
-  #include <inttypes.h>
-  #include <stdlib.h>
-  #include <sys/types.h>
-  #include <dirent.h>
+#include "ts/ts.h"
+#include <dirent.h>
+#include <getopt.h>
+#include <inttypes.h>
+#include <search.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
 
-  #include <unistd.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
 
-  #define PLUGIN_NAME "system_stats"
-  #define DEBUG_TAG PLUGIN_NAME
+#define PLUGIN_NAME "system_stats"
+#define DEBUG_TAG PLUGIN_NAME
 
-  /* Time in MS to grab the system stats */
-  #define SYSTEM_STATS_TIMEOUT 5000
+// Time in MS to grab the system stats
+#define SYSTEM_STATS_TIMEOUT 5000
 
-  /* Stat string names. These are for easily grabbable ones
-  that dont need to be parsed from a directory tree */
+// Load Average Strings
+#define LOAD_AVG_ONE_MIN "plugin." PLUGIN_NAME ".loadavg.one"
+#define LOAD_AVG_FIVE_MIN "plugin." PLUGIN_NAME ".loadavg.five"
+#define LOAD_AVG_TEN_MIN "plugin." PLUGIN_NAME ".loadavg.ten"
 
-  /******** Load Average Strings *****************/
-  #define LOAD_AVG_ONE_MIN "plugin." PLUGIN_NAME ".loadavg.one"
-  #define LOAD_AVG_FIVE_MIN "plugin." PLUGIN_NAME ".loadavg.five"
-  #define LOAD_AVG_TEN_MIN "plugin." PLUGIN_NAME ".loadavg.ten"
+// Base net stats name, full name needs to populated
+// with NET_STATS.infname.RX/TX.standard_net_stats field
+#define NET_STATS "plugin." PLUGIN_NAME ".net."
 
-  /* 
-   * Base net stats name, full name needs to populated
-   * with NET_STATS.infname.RX/TX.standard_net_stats field
-   * */
-  #define NET_STATS "plugin." PLUGIN_NAME ".net."
+#define NET_STATS_DIR "/sys/class/net"
+#define STATISTICS_DIR "statistics"
 
-  #define NET_STATS_DIR "/sys/class/net"
+typedef struct {
+  TSStatPersistence persist_type;
+  TSMutex stat_creation_mutex;
+} config_t;
 
-  typedef struct 
-  {
-    TSStatPersistence persist_type;
-    TSMutex stat_creation_mutex;
-  } config_t;
+int configReloadRequests = 0;
+int configReloads        = 0;
+time_t lastReloadRequest = 0;
+time_t lastReload        = 0;
+time_t astatsLoad        = 0;
 
-  int configReloadRequests = 0;
-  int configReloads = 0;
-  time_t lastReloadRequest = 0;
-  time_t lastReload = 0;
-  time_t astatsLoad = 0;
 
-    /**********************************************
-     * We should only be grabbing these on a linux
-     * or possibly BSD system. Others like OSX
-     * do not have a proc or sysfs system
-     * ********************************************/
-#if defined (__linux__) 
-  static int stat_add(char *name, TSRecordDataType record_type, TSMutex create_mutex)
-  {
-    int stat_id = -1;
+// We should only be grabbing these on a linux
+// or possibly BSD system. Others like OSX
+// do not have a proc or sysfs system
+#if defined(__linux__)
+static int
+statAdd(char *name, TSRecordDataType record_type, TSMutex create_mutex)
+{
+  int stat_id = -1;
 
-    //TSMutexLock(create_mutex);
-    if (TS_ERROR == TSStatFindName((const char *)name, &stat_id)) 
-    {
-      stat_id = TSStatCreate((const char *)name, record_type, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
-      if (stat_id == TS_ERROR) 
-      {
-        TSDebug(DEBUG_TAG, "Error creating stat_name: %s", name);
-      } 
-      else 
-      {
-        TSDebug(DEBUG_TAG, "Created stat_name: %s stat_id: %d", name, stat_id);
-      }
+  // TSMutexLock(create_mutex);
+  if (TS_ERROR == TSStatFindName((const char *)name, &stat_id)) {
+    stat_id = TSStatCreate((const char *)name, record_type, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
+    if (stat_id == TS_ERROR) {
+      TSDebug(DEBUG_TAG, "Error creating stat_name: %s", name);
+    } else {
+      TSDebug(DEBUG_TAG, "Created stat_name: %s stat_id: %d", name, stat_id);
     }
-    //TSMutexUnlock(create_mutex);
-    return stat_id;
   }
-  
-  static char * getFile(char *filename, char *buffer, int bufferSize) 
-  {
-    TSFile f= 0;
-    size_t s = 0;
+  // TSMutexUnlock(create_mutex);
+  return stat_id;
+}
 
-    f = TSfopen(filename, "r");
-    if (!f)
-    {
-      buffer[0] = 0;
-      return buffer;
-    }
+static char *
+getFile(char *filename, char *buffer, int bufferSize)
+{
+  TSFile f = 0;
+  size_t s = 0;
 
-    s = TSfread(f, buffer, bufferSize);
-    if (s > 0)
-      buffer[s] = 0;
-    else
-      buffer[0] = 0;
-
-    TSfclose(f);
-
+  f = TSfopen(filename, "r");
+  if (!f) {
+    buffer[0] = 0;
     return buffer;
   }
 
-  static void stat_set(char *name, int value, TSMutex stat_creation_mutex)
-  {
-    int stat_id = stat_add(name, TS_RECORDDATATYPE_INT, stat_creation_mutex);
-    TSStatIntSet(stat_id, value);
+  s = TSfread(f, buffer, bufferSize);
+  if (s > 0)
+    buffer[s] = 0;
+  else
+    buffer[0] = 0;
+
+  TSfclose(f);
+
+  return buffer;
+}
+
+static void
+statSet(char *name, int value, TSMutex stat_creation_mutex)
+{
+  int stat_id = statAdd(name, TS_RECORDDATATYPE_INT, stat_creation_mutex);
+  TSStatIntSet(stat_id, value);
+}
+
+static void
+setNetStat(TSMutex stat_creation_mutex, char *subdir, char *entry, char *subsubdir)
+{
+  char sysfs_name[255];
+  char stat_name[255];
+  char data[255];
+
+  memset(&stat_name[0], 0, sizeof(stat_name));
+  memset(&sysfs_name[0], 0, sizeof(sysfs_name));
+  memset(&data[0], 0, sizeof(data));
+
+  // Generate the ATS stats name 
+  snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, subdir, entry);
+
+  // Determine if this is a toplevel netdev stat, or one from stastistics.
+  //  This could be handled much better
+  if (subsubdir == NULL) {
+    snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s", NET_STATS_DIR, subdir, entry);
+  } else {
+    snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s/%s", NET_STATS_DIR, subdir, subsubdir, entry);
   }
 
-  static void set_net_stat(TSMutex stat_creation_mutex, char *subdir, char *entry, int level)
-  {
-    char sysfs_name[255];
-    char stat_name[255];
-    char data[255];
+  getFile(&sysfs_name[0], &data[0], sizeof(data));
+  statSet(stat_name, atoi(data), stat_creation_mutex);
+}
 
-    memset(&stat_name[0], 0, sizeof(stat_name));
-    memset(&sysfs_name[0], 0, sizeof(sysfs_name));
-    memset(&data[0], 0, sizeof(data));
+static int
+netStatsInfo(TSMutex stat_creation_mutex)
+{
+  struct dirent *dent;
+  DIR *srcdir = opendir(NET_STATS_DIR);
 
-    /* Generate the ATS stats name */
-    snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, subdir, entry);
-
-    /* Determine if this is a toplevel netdev stat, or one from stastistics.
-      This could be handled much better
-      */
-    if (level == 0)
-    {
-      snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s", NET_STATS_DIR, subdir, entry);
-    }
-    else
-    {
-      snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/statistics/%s", NET_STATS_DIR, subdir, entry);
-    }
-
-    getFile(&sysfs_name[0], &data[0], sizeof(data));
-    stat_set(stat_name, atoi(data), stat_creation_mutex);
-
-  }
-
-  static int net_stats_info(TSMutex stat_creation_mutex)
-  {
-    struct dirent* dent;
-    DIR* srcdir = opendir(NET_STATS_DIR);
-
-    if (srcdir == NULL)
-    {
-      return 0;
-    }
-
-    while ((dent = readdir(srcdir)) != NULL)
-    {
-      if (strcmp(dent->d_name, ".") == 0 || 
-          strcmp(dent->d_name, "..") == 0 ||
-          strcmp(dent->d_name, "lo") == 0)
-      {
-        continue;
-      }
-
-      set_net_stat(stat_creation_mutex, dent->d_name, "speed", 0);
-      set_net_stat(stat_creation_mutex, dent->d_name, "collisions", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "multicast", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_bytes", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_compressed", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_crc_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_dropped", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_errors", 1);      
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_fifo_errors", 1);      
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_frame_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_length_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_missed_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_nohandler", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_over_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "rx_packets", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_aborted_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_bytes", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_carrier_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_compressed", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_dropped", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_fifo_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_heartbeat_errors", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_packets", 1);
-      set_net_stat(stat_creation_mutex, dent->d_name, "tx_window_errors", 1);
-    }
+  if (srcdir == NULL) {
     return 0;
   }
+
+  while ((dent = readdir(srcdir)) != NULL) {
+    if (strcmp(dent->d_name, ".") == 0 || strcmp(dent->d_name, "..") == 0 || strcmp(dent->d_name, "lo") == 0) {
+      continue;
+    }
+
+    setNetStat(stat_creation_mutex, dent->d_name, "speed", 0);
+    setNetStat(stat_creation_mutex, dent->d_name, "collisions", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "multicast", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_bytes", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_compressed", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_crc_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_dropped", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_fifo_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_frame_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_length_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_missed_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_nohandler", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_over_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "rx_packets", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_aborted_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_bytes", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_carrier_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_compressed", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_dropped", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_fifo_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_heartbeat_errors", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_packets", STATISTICS_DIR);
+    setNetStat(stat_creation_mutex, dent->d_name, "tx_window_errors", STATISTICS_DIR);
+  }
+  return 0;
+}
 #endif
 
-  static void get_stats(TSMutex stat_creation_mutex)
-  {
-    double loadavg[3] = {0,0,0};
+static void
+getStats(TSMutex stat_creation_mutex)
+{
+  double loadavg[3] = {0, 0, 0};
 
-    getloadavg(loadavg, 3);
+  getloadavg(loadavg, 3);
 
-    /**********************************************
-     * We should only be grabbing these on a linux
-     * or possibly BSD system. Others like OSX
-     * do not have a proc or sysfs system
-     * ********************************************/
-#if defined (__linux__) 
-    stat_set(LOAD_AVG_ONE_MIN, loadavg[0]*100, stat_creation_mutex);
-    stat_set(LOAD_AVG_FIVE_MIN, loadavg[1]*100, stat_creation_mutex);
-    stat_set(LOAD_AVG_TEN_MIN, loadavg[2]*100, stat_creation_mutex);
-    net_stats_info(stat_creation_mutex);
-#endif    
+  // We should only be grabbing these on a linux
+  // or possibly BSD system. Others like OSX
+  // do not have a proc or sysfs system
+#if defined(__linux__)
+  statSet(LOAD_AVG_ONE_MIN, loadavg[0] * 100, stat_creation_mutex);
+  statSet(LOAD_AVG_FIVE_MIN, loadavg[1] * 100, stat_creation_mutex);
+  statSet(LOAD_AVG_TEN_MIN, loadavg[2] * 100, stat_creation_mutex);
+  netStatsInfo(stat_creation_mutex);
+#endif
+  return;
+}
+
+static int
+systemStatsContCB(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
+{
+  config_t *config;
+
+  TSDebug(DEBUG_TAG, "entered %s", __FUNCTION__);
+
+  config = (config_t *)TSContDataGet(cont);
+  getStats(config->stat_creation_mutex);
+
+  TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
+  TSDebug(DEBUG_TAG, "finished %s", __FUNCTION__);
+  ;
+  return 0;
+}
+
+void
+TSPluginInit(int argc, const char *argv[])
+{
+  TSPluginRegistrationInfo info;
+  TSCont stats_cont;
+  config_t *config;
+
+  info.plugin_name   = PLUGIN_NAME;
+  info.vendor_name   = "Apache Software Foundation";
+  info.support_email = "dev@trafficserver.apache.org";
+
+  if (TSPluginRegister(&info) != TS_SUCCESS) {
+    TSError("[system_stats] Plugin registration failed");
     return;
+  } else {
+    TSDebug(DEBUG_TAG, "Plugin registration succeeded");
   }
 
-  static int system_stats_cont_cb(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
-  {
-    config_t *config;
+  config                      = (config_t *)TSmalloc(sizeof(config_t));
+  config->persist_type        = TS_STAT_NON_PERSISTENT;
+  config->stat_creation_mutex = TSMutexCreate();
 
-    TSDebug(DEBUG_TAG, "entered %s", __FUNCTION__);
-
-    config = (config_t *)TSContDataGet(cont);
-    get_stats(config->stat_creation_mutex);
-
-    TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
-    TSDebug(DEBUG_TAG, "finished %s", __FUNCTION__);;
-    return 0;
+  if (argc > 1) {
+    // config options if necessary
   }
 
-  void TSPluginInit(int argc, const char *argv[])
-  {
-    TSPluginRegistrationInfo info;
-    TSCont stats_cont;
-    config_t *config;
-  
-    info.plugin_name   = PLUGIN_NAME;
-    info.vendor_name   = "Apache Software Foundation";
-    info.support_email = "dev@trafficserver.apache.org";
-  
-    if (TSPluginRegister(&info) != TS_SUCCESS) 
-    {
-      TSError("[system_stats] Plugin registration failed");
-      return;
-    } 
-    else 
-    {
-      TSDebug(DEBUG_TAG, "Plugin registration succeeded");
-    }
-  
-    config                      = (config_t *)TSmalloc(sizeof(config_t));
-    config->persist_type        = TS_STAT_NON_PERSISTENT;
-    config->stat_creation_mutex = TSMutexCreate();
+  stats_cont = TSContCreate(systemStatsContCB
+, TSMutexCreate());
+  TSContDataSet(stats_cont, (void *)config);
 
-    if (argc > 1) 
-    {
-        //config options if necessary
-    }
+  // We want our first hit immediate to populate the stats,
+  // Subsequent schedules done within the function will be for
+  // 5 seconds.
+  TSContSchedule(stats_cont, 0, TS_THREAD_POOL_TASK);
 
-    stats_cont = TSContCreate(system_stats_cont_cb, TSMutexCreate());
-    TSContDataSet(stats_cont, (void *)config);
-    //TSHttpHookAdd(TS_HTTP_READ_REQUEST_HDR_HOOK, stats_cont);
-
-    /* We want our first hit immediate to populate the stats,
-     * Subsequent schedules done within the function will be for
-     * 5 seconds.
-     * */
-    TSContSchedule(stats_cont, 0, TS_THREAD_POOL_TASK);
-
-    TSDebug(DEBUG_TAG, "Init complete");
-  }
-  
+  TSDebug(DEBUG_TAG, "Init complete");
+}
