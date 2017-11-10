@@ -208,11 +208,12 @@
 
     while ((dent = readdir(srcdir)) != NULL)
     {
-      if (strcmp(dent->d_name, ".") == 0 || strcmp(dent->d_name, "..") == 0)
+      if (strcmp(dent->d_name, ".") == 0 || 
+          strcmp(dent->d_name, "..") == 0 ||
+          strcmp(dent->d_name, "lo") == 0)
       {
         continue;
       }
-      TSDebug(DEBUG_TAG, " subdir name: %s", dent->d_name);
 
       set_net_stat(my_state, dent->d_name, "speed", 0);
       set_net_stat(my_state, dent->d_name, "collisions", 1);
@@ -280,7 +281,7 @@
     config_t *config;
     stats_state *my_state;
 
-    TSDebug(DEBUG_TAG, "System Stats CB Hit");
+    TSDebug(DEBUG_TAG, "entered %s", __FUNCTION__);
 
     config = (config_t *)TSContDataGet(cont);
 
@@ -290,7 +291,7 @@
     get_stats(my_state);
 
     TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
-    TSDebug(DEBUG_TAG, "Read Req Handler Finished");
+    TSDebug(DEBUG_TAG, "finished %s", __FUNCTION__);;
     return 0;
   }
 
@@ -323,7 +324,7 @@
         //config options if necessary
     }
 
-    stats_cont = TSContCreate(system_stats_cont_cb, NULL);
+    stats_cont = TSContCreate(system_stats_cont_cb, TSMutexCreate());
     TSContDataSet(stats_cont, (void *)config);
     //TSHttpHookAdd(TS_HTTP_READ_REQUEST_HDR_HOOK, stats_cont);
 
