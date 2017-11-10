@@ -42,6 +42,9 @@
   #define PLUGIN_NAME "system_stats"
   #define DEBUG_TAG PLUGIN_NAME
 
+  /* Time in MS to grab the system stats */
+  #define SYSTEM_STATS_TIMEOUT 5000
+
   /* Stat string names. These are for easily grabbable ones
   that dont need to be parsed from a directory tree */
 
@@ -107,6 +110,12 @@
   time_t lastReload = 0;
   time_t astatsLoad = 0;
 
+    /**********************************************
+     * We should only be grabbing these on a linux
+     * or possibly BSD system. Others like OSX
+     * do not have a proc or sysfs system
+     * ********************************************/
+#if defined (__linux__) 
   static int stat_add(char *name, TSRecordDataType record_type, TSMutex create_mutex)
   {
     int stat_id = -1;
@@ -127,7 +136,7 @@
     TSMutexUnlock(create_mutex);
     return stat_id;
   }
-
+  
   static char * getFile(char *filename, char *buffer, int bufferSize) 
   {
     TSFile f= 0;
@@ -157,12 +166,6 @@
     TSStatIntSet(stat_id, value);
   }
 
-    /**********************************************
-     * We should only be grabbing these on a linux
-     * or possibly BSD system. Others like OSX
-     * do not have a proc or sysfs system
-     * ********************************************/
-#if defined (__linux__)   
   static void set_net_stat(stats_state *my_state, char *subdir, char *entry, int level)
   {
     char sysfs_name[255];
@@ -272,12 +275,12 @@
     return;
   }
 
-  static int handle_read_req_hdr(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
+  static int system_stats_cont_cb(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
   {
-    TSHttpTxn txn = (TSHttpTxn)edata;
     config_t *config;
-    TSEvent reenable = TS_EVENT_HTTP_CONTINUE;
     stats_state *my_state;
+
+    TSDebug(DEBUG_TAG, "System Stats CB Hit");
 
     config = (config_t *)TSContDataGet(cont);
 
@@ -286,8 +289,8 @@
     my_state->stat_creation_mutex = config->stat_creation_mutex;
     get_stats(my_state);
 
+    TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
     TSDebug(DEBUG_TAG, "Read Req Handler Finished");
-    TSHttpTxnReenable(txn, reenable);
     return 0;
   }
 
@@ -320,14 +323,16 @@
         //config options if necessary
     }
 
-    stats_cont = TSContCreate(handle_read_req_hdr, NULL);
+    stats_cont = TSContCreate(system_stats_cont_cb, NULL);
     TSContDataSet(stats_cont, (void *)config);
-    TSHttpHookAdd(TS_HTTP_READ_REQUEST_HDR_HOOK, stats_cont);
-    /****
-     * Do an initial poll here of all stats to save
-     * an initial state
-     * ****/
-      //get_stats();
+    //TSHttpHookAdd(TS_HTTP_READ_REQUEST_HDR_HOOK, stats_cont);
+
+    /* We want our first hit immediate to populate the stats,
+     * Subsequent schedules done within the function will be for
+     * 5 seconds.
+     * */
+    TSContSchedule(stats_cont, 0, TS_THREAD_POOL_TASK);
+
     TSDebug(DEBUG_TAG, "Init complete");
   }
   
