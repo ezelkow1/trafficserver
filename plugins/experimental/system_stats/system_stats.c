@@ -21,21 +21,17 @@
 
 #include "ts/ink_config.h"
 #include "ts/ink_defs.h"
-
 #include "ts/ts.h"
+
 #include <dirent.h>
 #include <getopt.h>
 #include <inttypes.h>
-#include <search.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
 #include <unistd.h>
 
 #define PLUGIN_NAME "system_stats"
@@ -61,12 +57,12 @@ typedef struct {
   TSMutex stat_creation_mutex;
 } config_t;
 
+//TBD: We used to keep track of config reload amts and times
+// Not sure if we still need this or if it would be useful
 int configReloadRequests = 0;
 int configReloads        = 0;
 time_t lastReloadRequest = 0;
 time_t lastReload        = 0;
-time_t astatsLoad        = 0;
-
 
 // We should only be grabbing these on a linux
 // or possibly BSD system. Others like OSX
@@ -77,7 +73,8 @@ statAdd(char *name, TSRecordDataType record_type, TSMutex create_mutex)
 {
   int stat_id = -1;
 
-  // TSMutexLock(create_mutex);
+  TSMutexLock(create_mutex);
+  
   if (TS_ERROR == TSStatFindName((const char *)name, &stat_id)) {
     stat_id = TSStatCreate((const char *)name, record_type, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
     if (stat_id == TS_ERROR) {
@@ -86,7 +83,9 @@ statAdd(char *name, TSRecordDataType record_type, TSMutex create_mutex)
       TSDebug(DEBUG_TAG, "Created stat_name: %s stat_id: %d", name, stat_id);
     }
   }
-  // TSMutexUnlock(create_mutex);
+  
+  TSMutexUnlock(create_mutex);
+  
   return stat_id;
 }
 
@@ -117,7 +116,10 @@ static void
 statSet(char *name, int value, TSMutex stat_creation_mutex)
 {
   int stat_id = statAdd(name, TS_RECORDDATATYPE_INT, stat_creation_mutex);
-  TSStatIntSet(stat_id, value);
+  if (stat_id != TS_ERROR) {
+    TSStatIntSet(stat_id, value);
+  }
+  
 }
 
 static void
@@ -131,6 +133,11 @@ setNetStat(TSMutex stat_creation_mutex, char *subdir, char *entry, char *subsubd
   memset(&sysfs_name[0], 0, sizeof(sysfs_name));
   memset(&data[0], 0, sizeof(data));
 
+  if ( (subdir == NULL) || (entry == NULL)) {
+    TSError("%s(): NULL subdir or entry", __FUNCTION__);
+    return;
+  }
+  
   // Generate the ATS stats name 
   snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, subdir, entry);
 
