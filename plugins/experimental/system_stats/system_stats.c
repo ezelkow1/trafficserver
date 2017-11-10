@@ -222,7 +222,7 @@ systemStatsContCB(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
 
   TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
   TSDebug(DEBUG_TAG, "finished %s", __FUNCTION__);
-  ;
+  
   return 0;
 }
 
@@ -252,8 +252,7 @@ TSPluginInit(int argc, const char *argv[])
     // config options if necessary
   }
 
-  stats_cont = TSContCreate(systemStatsContCB
-, TSMutexCreate());
+  stats_cont = TSContCreate(systemStatsContCB, TSMutexCreate());
   TSContDataSet(stats_cont, (void *)config);
 
   // We want our first hit immediate to populate the stats,
