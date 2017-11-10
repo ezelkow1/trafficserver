@@ -157,6 +157,12 @@
     TSStatIntSet(stat_id, value);
   }
 
+    /**********************************************
+     * We should only be grabbing these on a linux
+     * or possibly BSD system. Others like OSX
+     * do not have a proc or sysfs system
+     * ********************************************/
+#if defined (__linux__)   
   static void set_net_stat(stats_state *my_state, char *subdir, char *entry, int level)
   {
     char sysfs_name[255];
@@ -211,10 +217,18 @@
     }
     return 0;
   }
+#endif
 
   static void get_stats(stats_state *my_state)
   {
     double loadavg[3] = {0,0,0};
+      
+    if (my_state == NULL)
+    {
+      TSError("%s(): Null state", __FUNCTION__);
+      return;
+    }
+
     getloadavg(loadavg, 3);
 
     /* Convert the doubles to int */
@@ -222,10 +236,17 @@
     my_state->load_stats.five_minute = loadavg[1]*100;
     my_state->load_stats.ten_minute = loadavg[2]*100;
 
+    /**********************************************
+     * We should only be grabbing these on a linux
+     * or possibly BSD system. Others like OSX
+     * do not have a proc or sysfs system
+     * ********************************************/
+#if defined (__linux__) 
     stat_set(LOAD_AVG_ONE_MIN, my_state->load_stats.one_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_FIVE_MIN, my_state->load_stats.five_minute, my_state->stat_creation_mutex);
     stat_set(LOAD_AVG_TEN_MIN, my_state->load_stats.ten_minute, my_state->stat_creation_mutex);
     net_stats_info(my_state);
+#endif    
     return;
   }
 
