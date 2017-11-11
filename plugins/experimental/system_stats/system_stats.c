@@ -61,7 +61,7 @@ typedef struct {
   TSMutex stat_creation_mutex;
 } config_t;
 
-//TBD: We used to keep track of config reload amts and times
+// TBD: We used to keep track of config reload amts and times
 // Not sure if we still need this or if it would be useful
 int configReloadRequests = 0;
 int configReloads        = 0;
@@ -78,7 +78,7 @@ statAdd(char *name, TSRecordDataType record_type, TSMutex create_mutex)
   int stat_id = -1;
 
   TSMutexLock(create_mutex);
-  
+
   if (TS_ERROR == TSStatFindName((const char *)name, &stat_id)) {
     stat_id = TSStatCreate((const char *)name, record_type, TS_STAT_NON_PERSISTENT, TS_STAT_SYNC_SUM);
     if (stat_id == TS_ERROR) {
@@ -87,9 +87,9 @@ statAdd(char *name, TSRecordDataType record_type, TSMutex create_mutex)
       TSDebug(DEBUG_TAG, "Created stat_name: %s stat_id: %d", name, stat_id);
     }
   }
-  
+
   TSMutexUnlock(create_mutex);
-  
+
   return stat_id;
 }
 
@@ -123,7 +123,6 @@ statSet(char *name, int value, TSMutex stat_creation_mutex)
   if (stat_id != TS_ERROR) {
     TSStatIntSet(stat_id, value);
   }
-  
 }
 
 static void
@@ -137,12 +136,12 @@ setNetStat(TSMutex stat_creation_mutex, char *interface, char *entry, char *subd
   memset(&sysfs_name[0], 0, sizeof(sysfs_name));
   memset(&data[0], 0, sizeof(data));
 
-  if ( (interface == NULL) || (entry == NULL)) {
+  if ((interface == NULL) || (entry == NULL)) {
     TSError("%s(): NULL subdir or entry", __FUNCTION__);
     return;
   }
-  
-  // Generate the ATS stats name 
+
+  // Generate the ATS stats name
   snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, interface, entry);
 
   // Determine if this is a toplevel netdev stat, or one from stastistics.
@@ -204,9 +203,9 @@ netStatsInfo(TSMutex stat_creation_mutex)
 static void
 getStats(TSMutex stat_creation_mutex)
 {
-  // We should only be grabbing these on a linux
-  // or possibly BSD system. Others like OSX
-  // do not have a proc or sysfs system
+// We should only be grabbing these on a linux
+// or possibly BSD system. Others like OSX
+// do not have a proc or sysfs system
 #if defined(__linux__)
   struct sysinfo info;
 
@@ -233,7 +232,7 @@ systemStatsContCB(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
 
   TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
   TSDebug(DEBUG_TAG, "finished %s", __FUNCTION__);
-  
+
   return 0;
 }
 
