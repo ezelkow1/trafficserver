@@ -33,6 +33,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/sysinfo.h>
 
 #define PLUGIN_NAME "system_stats"
 #define DEBUG_TAG PLUGIN_NAME
@@ -44,6 +45,9 @@
 #define LOAD_AVG_ONE_MIN "plugin." PLUGIN_NAME ".loadavg.one"
 #define LOAD_AVG_FIVE_MIN "plugin." PLUGIN_NAME ".loadavg.five"
 #define LOAD_AVG_TEN_MIN "plugin." PLUGIN_NAME ".loadavg.ten"
+
+// Process Strings
+#define CURRENT_PROCESSES "plugin." PLUGIN_NAME ".current_processes"
 
 // Base net stats name, full name needs to populated
 // with NET_STATS.infname.RX/TX.standard_net_stats field
@@ -123,9 +127,9 @@ statSet(char *name, int value, TSMutex stat_creation_mutex)
 }
 
 static void
-setNetStat(TSMutex stat_creation_mutex, char *subdir, char *entry, char *subsubdir)
+setNetStat(TSMutex stat_creation_mutex, char *interface, char *entry, char *subdir)
 {
-  char sysfs_name[255];
+  char sysfs_name[PATH_MAX];
   char stat_name[255];
   char data[255];
 
@@ -133,20 +137,19 @@ setNetStat(TSMutex stat_creation_mutex, char *subdir, char *entry, char *subsubd
   memset(&sysfs_name[0], 0, sizeof(sysfs_name));
   memset(&data[0], 0, sizeof(data));
 
-  if ( (subdir == NULL) || (entry == NULL)) {
+  if ( (interface == NULL) || (entry == NULL)) {
     TSError("%s(): NULL subdir or entry", __FUNCTION__);
     return;
   }
   
   // Generate the ATS stats name 
-  snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, subdir, entry);
+  snprintf(&stat_name[0], sizeof(stat_name), "%s%s.%s", NET_STATS, interface, entry);
 
   // Determine if this is a toplevel netdev stat, or one from stastistics.
-  //  This could be handled much better
-  if (subsubdir == NULL) {
-    snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s", NET_STATS_DIR, subdir, entry);
+  if (subdir == NULL) {
+    snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s", NET_STATS_DIR, interface, entry);
   } else {
-    snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s/%s", NET_STATS_DIR, subdir, subsubdir, entry);
+    snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s/%s", NET_STATS_DIR, interface, subdir, entry);
   }
 
   getFile(&sysfs_name[0], &data[0], sizeof(data));
@@ -168,7 +171,7 @@ netStatsInfo(TSMutex stat_creation_mutex)
       continue;
     }
 
-    setNetStat(stat_creation_mutex, dent->d_name, "speed", 0);
+    setNetStat(stat_creation_mutex, dent->d_name, "speed", NULL);
     setNetStat(stat_creation_mutex, dent->d_name, "collisions", STATISTICS_DIR);
     setNetStat(stat_creation_mutex, dent->d_name, "multicast", STATISTICS_DIR);
     setNetStat(stat_creation_mutex, dent->d_name, "rx_bytes", STATISTICS_DIR);
@@ -201,17 +204,18 @@ netStatsInfo(TSMutex stat_creation_mutex)
 static void
 getStats(TSMutex stat_creation_mutex)
 {
-  double loadavg[3] = {0, 0, 0};
-
-  getloadavg(loadavg, 3);
-
   // We should only be grabbing these on a linux
   // or possibly BSD system. Others like OSX
   // do not have a proc or sysfs system
 #if defined(__linux__)
-  statSet(LOAD_AVG_ONE_MIN, loadavg[0] * 100, stat_creation_mutex);
-  statSet(LOAD_AVG_FIVE_MIN, loadavg[1] * 100, stat_creation_mutex);
-  statSet(LOAD_AVG_TEN_MIN, loadavg[2] * 100, stat_creation_mutex);
+  struct sysinfo info;
+
+  sysinfo(&info);
+
+  statSet(LOAD_AVG_ONE_MIN, info.loads[0], stat_creation_mutex);
+  statSet(LOAD_AVG_FIVE_MIN, info.loads[1], stat_creation_mutex);
+  statSet(LOAD_AVG_TEN_MIN, info.loads[2], stat_creation_mutex);
+  statSet(CURRENT_PROCESSES, info.procs, stat_creation_mutex);
   netStatsInfo(stat_creation_mutex);
 #endif
   return;
@@ -264,7 +268,8 @@ TSPluginInit(int argc, const char *argv[])
 
   // We want our first hit immediate to populate the stats,
   // Subsequent schedules done within the function will be for
-  // 5 seconds.
+  // 5 seconds. One sec delay so hopefully we end up at the
+  // bottom of the stats list
   TSContSchedule(stats_cont, 0, TS_THREAD_POOL_TASK);
 
   TSDebug(DEBUG_TAG, "Init complete");
