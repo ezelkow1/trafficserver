@@ -34,7 +34,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#if defined (__linux__)
+#ifdef HAVE_SYS_SYSINFO_H
 #include <sys/sysinfo.h>
 #endif
 
@@ -59,10 +59,7 @@
 #define NET_STATS_DIR "/sys/class/net"
 #define STATISTICS_DIR "statistics"
 
-// We should only be grabbing these on a linux
-// or possibly BSD system. Others like OSX
-// do not have a proc or sysfs system
-#if defined(__linux__)
+#ifdef HAVE_SYS_SYSINFO_H
 static int
 statAdd(const char *name, TSRecordDataType record_type, TSMutex create_mutex)
 {
@@ -189,15 +186,12 @@ netStatsInfo(TSMutex stat_creation_mutex)
   }
   return 0;
 }
-#endif // #ifdef __linux__
+#endif // #ifdef HAVE_SYS_SYSINFO_H
 
 static void
 getStats(TSMutex stat_creation_mutex)
 {
-// We should only be grabbing these on a linux
-// or possibly BSD system. Others like OSX
-// do not have a proc or sysfs system
-#if defined(__linux__)
+#ifdef HAVE_SYS_SYSINFO_H
   struct sysinfo info;
 
   sysinfo(&info);
@@ -207,7 +201,7 @@ getStats(TSMutex stat_creation_mutex)
   statSet(LOAD_AVG_TEN_MIN, info.loads[2], stat_creation_mutex);
   statSet(CURRENT_PROCESSES, info.procs, stat_creation_mutex);
   netStatsInfo(stat_creation_mutex);
-#endif // #ifdef __linux__
+#endif // #ifdef HAVE_SYS_SYSINFO_H
   return;
 }
 

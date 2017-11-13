@@ -15,7 +15,7 @@
 #  limitations under the License.
 
 pkglib_LTLIBRARIES += experimental/system_stats/system_stats.la
-
+AC_CHECK_HEADERS_ONCE([sys/sysinfo.h])
 experimental_system_stats_system_stats_la_SOURCES = \
   experimental/system_stats/system_stats.c
   
