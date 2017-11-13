@@ -127,7 +127,7 @@ setNetStat(TSMutex stat_creation_mutex, const char *interface, const char *entry
   memset(&data[0], 0, sizeof(data));
 
   if ((interface == NULL) || (entry == NULL)) {
-    TSError("%s(): NULL subdir or entry", __FUNCTION__);
+    TSError("%s: NULL subdir or entry", DEBUG_TAG);
     return;
   }
 
@@ -239,7 +239,7 @@ TSPluginInit(int argc, const char *argv[])
   info.support_email = "dev@trafficserver.apache.org";
 
   if (TSPluginRegister(&info) != TS_SUCCESS) {
-    TSError("[system_stats] Plugin registration failed");
+    TSError("[%s] Plugin registration failed", DEBUG_TAG);
     return;
   } else {
     TSDebug(DEBUG_TAG, "Plugin registration succeeded");
