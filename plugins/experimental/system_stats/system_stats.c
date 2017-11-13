@@ -33,7 +33,10 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#if defined (__linux__)
 #include <sys/sysinfo.h>
+#endif
 
 #define PLUGIN_NAME "system_stats"
 #define DEBUG_TAG PLUGIN_NAME
@@ -198,7 +201,7 @@ netStatsInfo(TSMutex stat_creation_mutex)
   }
   return 0;
 }
-#endif
+#endif // #ifdef __linux__
 
 static void
 getStats(TSMutex stat_creation_mutex)
@@ -216,7 +219,7 @@ getStats(TSMutex stat_creation_mutex)
   statSet(LOAD_AVG_TEN_MIN, info.loads[2], stat_creation_mutex);
   statSet(CURRENT_PROCESSES, info.procs, stat_creation_mutex);
   netStatsInfo(stat_creation_mutex);
-#endif
+#endif // #ifdef __linux__
   return;
 }
 
