@@ -59,24 +59,12 @@
 #define NET_STATS_DIR "/sys/class/net"
 #define STATISTICS_DIR "statistics"
 
-typedef struct {
-  TSStatPersistence persist_type;
-  TSMutex stat_creation_mutex;
-} config_t;
-
-// TBD: We used to keep track of config reload amts and times
-// Not sure if we still need this or if it would be useful
-int configReloadRequests = 0;
-int configReloads        = 0;
-time_t lastReloadRequest = 0;
-time_t lastReload        = 0;
-
 // We should only be grabbing these on a linux
 // or possibly BSD system. Others like OSX
 // do not have a proc or sysfs system
 #if defined(__linux__)
 static int
-statAdd(char *name, TSRecordDataType record_type, TSMutex create_mutex)
+statAdd(const char *name, TSRecordDataType record_type, TSMutex create_mutex)
 {
   int stat_id = -1;
 
@@ -97,7 +85,7 @@ statAdd(char *name, TSRecordDataType record_type, TSMutex create_mutex)
 }
 
 static char *
-getFile(char *filename, char *buffer, int bufferSize)
+getFile(const char *filename, char *buffer, int bufferSize)
 {
   TSFile f = 0;
   size_t s = 0;
@@ -120,7 +108,7 @@ getFile(char *filename, char *buffer, int bufferSize)
 }
 
 static void
-statSet(char *name, int value, TSMutex stat_creation_mutex)
+statSet(const char *name, int value, TSMutex stat_creation_mutex)
 {
   int stat_id = statAdd(name, TS_RECORDDATATYPE_INT, stat_creation_mutex);
   if (stat_id != TS_ERROR) {
@@ -129,7 +117,7 @@ statSet(char *name, int value, TSMutex stat_creation_mutex)
 }
 
 static void
-setNetStat(TSMutex stat_creation_mutex, char *interface, char *entry, char *subdir)
+setNetStat(TSMutex stat_creation_mutex, const char *interface, const char *entry, const char *subdir)
 {
   char sysfs_name[PATH_MAX];
   char stat_name[255];
@@ -226,12 +214,12 @@ getStats(TSMutex stat_creation_mutex)
 static int
 systemStatsContCB(TSCont cont, TSEvent event ATS_UNUSED, void *edata)
 {
-  config_t *config;
+  TSMutex stat_creation_mutex;
 
   TSDebug(DEBUG_TAG, "entered %s", __FUNCTION__);
-
-  config = (config_t *)TSContDataGet(cont);
-  getStats(config->stat_creation_mutex);
+  
+  stat_creation_mutex = TSContMutexGet(cont);
+  getStats(stat_creation_mutex);
 
   TSContSchedule(cont, SYSTEM_STATS_TIMEOUT, TS_THREAD_POOL_TASK);
   TSDebug(DEBUG_TAG, "finished %s", __FUNCTION__);
@@ -244,7 +232,6 @@ TSPluginInit(int argc, const char *argv[])
 {
   TSPluginRegistrationInfo info;
   TSCont stats_cont;
-  config_t *config;
 
   info.plugin_name   = PLUGIN_NAME;
   info.vendor_name   = "Apache Software Foundation";
@@ -257,21 +244,12 @@ TSPluginInit(int argc, const char *argv[])
     TSDebug(DEBUG_TAG, "Plugin registration succeeded");
   }
 
-  config                      = (config_t *)TSmalloc(sizeof(config_t));
-  config->persist_type        = TS_STAT_NON_PERSISTENT;
-  config->stat_creation_mutex = TSMutexCreate();
-
-  if (argc > 1) {
-    // config options if necessary
-  }
-
   stats_cont = TSContCreate(systemStatsContCB, TSMutexCreate());
-  TSContDataSet(stats_cont, (void *)config);
+  TSContDataSet(stats_cont, NULL);
 
   // We want our first hit immediate to populate the stats,
   // Subsequent schedules done within the function will be for
-  // 5 seconds. One sec delay so hopefully we end up at the
-  // bottom of the stats list
+  // 5 seconds.
   TSContSchedule(stats_cont, 0, TS_THREAD_POOL_TASK);
 
   TSDebug(DEBUG_TAG, "Init complete");
