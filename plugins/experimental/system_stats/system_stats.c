@@ -200,8 +200,9 @@ getStats(TSMutex stat_creation_mutex)
   statSet(LOAD_AVG_FIVE_MIN, info.loads[1], stat_creation_mutex);
   statSet(LOAD_AVG_TEN_MIN, info.loads[2], stat_creation_mutex);
   statSet(CURRENT_PROCESSES, info.procs, stat_creation_mutex);
+#endif // #ifdef HAVE_SYS_SYSINFO_H  
   netStatsInfo(stat_creation_mutex);
-#endif // #ifdef HAVE_SYS_SYSINFO_H
+
   return;
 }
 
