@@ -38,6 +38,8 @@
 #include <sys/sysinfo.h>
 #endif
 
+#include <sys/syslimits.h>
+
 #define PLUGIN_NAME "system_stats"
 #define DEBUG_TAG PLUGIN_NAME
 
@@ -59,7 +61,6 @@
 #define NET_STATS_DIR "/sys/class/net"
 #define STATISTICS_DIR "statistics"
 
-#ifdef HAVE_SYS_SYSINFO_H
 static int
 statAdd(const char *name, TSRecordDataType record_type, TSMutex create_mutex)
 {
@@ -186,7 +187,6 @@ netStatsInfo(TSMutex stat_creation_mutex)
   }
   return 0;
 }
-#endif // #ifdef HAVE_SYS_SYSINFO_H
 
 static void
 getStats(TSMutex stat_creation_mutex)
