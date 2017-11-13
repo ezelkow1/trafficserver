@@ -38,7 +38,7 @@
 #include <sys/sysinfo.h>
 #endif
 
-#include <sys/syslimits.h>
+#include <limits.h>
 
 #define PLUGIN_NAME "system_stats"
 #define DEBUG_TAG PLUGIN_NAME
