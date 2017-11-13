@@ -82,7 +82,7 @@ statAdd(const char *name, TSRecordDataType record_type, TSMutex create_mutex)
   return stat_id;
 }
 
-static char *
+static int
 getFile(const char *filename, char *buffer, int bufferSize)
 {
   TSFile f = 0;
@@ -91,7 +91,8 @@ getFile(const char *filename, char *buffer, int bufferSize)
   f = TSfopen(filename, "r");
   if (!f) {
     buffer[0] = 0;
-    return buffer;
+    //Return -1 to indicate read err
+    return -1;
   }
 
   s = TSfread(f, buffer, bufferSize);
@@ -102,7 +103,7 @@ getFile(const char *filename, char *buffer, int bufferSize)
 
   TSfclose(f);
 
-  return buffer;
+  return s;
 }
 
 static void
@@ -140,8 +141,13 @@ setNetStat(TSMutex stat_creation_mutex, const char *interface, const char *entry
     snprintf(&sysfs_name[0], sizeof(sysfs_name), "%s/%s/%s/%s", NET_STATS_DIR, interface, subdir, entry);
   }
 
-  getFile(&sysfs_name[0], &data[0], sizeof(data));
-  statSet(stat_name, atoi(data), stat_creation_mutex);
+  if (getFile(&sysfs_name[0], &data[0], sizeof(data)) < 0) {
+    TSDebug(DEBUG_TAG, "Error reading file %s", sysfs_name);   
+  }
+  else{
+    statSet(stat_name, atoi(data), stat_creation_mutex);
+  }
+
 }
 
 static int
