@@ -366,7 +366,7 @@ HttpTransactCache::calculate_quality_of_match(CacheLookupHttpConfig *http_config
 
     if (q[1] >= 0.0) {
       // Accept-Encoding: header
-      if (http_config_param->ignore_accept_encoding_mismatch & vary_skip_mask) {
+      if (http_config_param->oride.ignore_accept_encoding_mismatch & vary_skip_mask) {
         // Ignore it
         q[2] = 1.0;
       } else {
@@ -1229,7 +1229,7 @@ HttpTransactCache::CalcVariability(CacheLookupHttpConfig *http_config_params, HT
 
       // Disable Vary mismatch checking for Accept-Encoding.  This is only safe to
       // set if you are promising to fix any Accept-Encoding/Content-Encoding mismatches.
-      if (http_config_params->ignore_accept_encoding_mismatch && !strcasecmp((char *)field->str, "Accept-Encoding")) {
+      if (http_config_params->oride.ignore_accept_encoding_mismatch && !strcasecmp((char *)field->str, "Accept-Encoding")) {
         continue;
       }
 

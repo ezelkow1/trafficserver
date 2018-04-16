@@ -7535,6 +7535,7 @@ const char *SDK_Overridable_Configs[TS_CONFIG_LAST_ENTRY] = {
   "proxy.config.http.cache.ignore_server_no_cache",
   "proxy.config.http.cache.cache_responses_to_cookies",
   "proxy.config.http.cache.ignore_authentication",
+  "proxy.config.http.cache.ignore_accept_encoding_mismatch",
   "proxy.config.http.cache.cache_urls_that_look_dynamic",
   "proxy.config.http.cache.required_headers",
   "proxy.config.http.insert_request_via_str",

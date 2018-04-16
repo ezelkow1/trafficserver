@@ -394,7 +394,7 @@ HttpSM::init()
   t_state.cache_info.config.cache_global_user_agent_header  = t_state.txn_conf->global_user_agent_header ? true : false;
   t_state.cache_info.config.ignore_accept_mismatch          = t_state.http_config_param->ignore_accept_mismatch;
   t_state.cache_info.config.ignore_accept_language_mismatch = t_state.http_config_param->ignore_accept_language_mismatch;
-  t_state.cache_info.config.ignore_accept_encoding_mismatch = t_state.http_config_param->ignore_accept_encoding_mismatch;
+  t_state.cache_info.config.ignore_accept_encoding_mismatch = t_state.http_config_param->oride.ignore_accept_encoding_mismatch;
   t_state.cache_info.config.ignore_accept_charset_mismatch  = t_state.http_config_param->ignore_accept_charset_mismatch;
   t_state.cache_info.config.cache_enable_default_vary_headers =
     t_state.http_config_param->cache_enable_default_vary_headers ? true : false;

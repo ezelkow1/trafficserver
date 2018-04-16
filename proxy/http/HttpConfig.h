@@ -479,7 +479,8 @@ struct OverridableHttpConfigParams {
       freshness_fuzz_prob(0.005),
       background_fill_threshold(0.5),
       client_cert_filename(NULL),
-      client_cert_filepath(NULL)
+      client_cert_filepath(NULL),
+      ignore_accept_encoding_mismatch(2)
   {
   }
 

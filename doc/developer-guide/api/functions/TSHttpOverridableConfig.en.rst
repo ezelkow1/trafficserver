@@ -94,6 +94,7 @@ c:member:`TS_CONFIG_HTTP_CACHE_IGNORE_AUTHENTICATION`               :ts:cv:`prox
 c:member:`TS_CONFIG_HTTP_CACHE_IGNORE_CLIENT_CC_MAX_AGE`            :ts:cv:`proxy.config.http.cache.ignore_client_cc_max_age`
 c:member:`TS_CONFIG_HTTP_CACHE_IGNORE_CLIENT_NO_CACHE`              :ts:cv:`proxy.config.http.cache.ignore_client_no_cache`
 c:member:`TS_CONFIG_HTTP_CACHE_IGNORE_SERVER_NO_CACHE`              :ts:cv:`proxy.config.http.cache.ignore_server_no_cache`
+c:member:`TS_CONFIG_HTTP_CACHE_IGNORE_ACCEPT_ENCODING_MISMATCH`     :ts:cv:`procy.config.http.cache.ignore_accept_encoding_mismatch`
 c:member:`TS_CONFIG_HTTP_CACHE_IMS_ON_CLIENT_NO_CACHE`              :ts:cv:`proxy.config.http.cache.ims_on_client_no_cache`
 c:member:`TS_CONFIG_HTTP_CACHE_MAX_OPEN_READ_RETRIES`               :ts:cv:`proxy.config.http.cache.max_open_read_retries`
 c:member:`TS_CONFIG_HTTP_CACHE_MAX_OPEN_WRITE_RETRIES`              :ts:cv:`proxy.config.http.cache.max_open_write_retries`
