@@ -405,6 +405,7 @@ struct OverridableHttpConfigParams {
       cache_range_lookup(1),
       cache_range_write(0),
       allow_multi_range(1),
+      ignore_accept_encoding_mismatch(2),      
       insert_request_via_string(1),
       insert_response_via_string(0),
       doc_in_cache_skip_dns(1),
@@ -479,8 +480,7 @@ struct OverridableHttpConfigParams {
       freshness_fuzz_prob(0.005),
       background_fill_threshold(0.5),
       client_cert_filename(NULL),
-      client_cert_filepath(NULL),
-      ignore_accept_encoding_mismatch(2)
+      client_cert_filepath(NULL)
   {
   }
 
@@ -554,6 +554,7 @@ struct OverridableHttpConfigParams {
   MgmtByte cache_range_write;
   MgmtByte allow_multi_range;
 
+  MgmtByte ignore_accept_encoding_mismatch;
   MgmtByte insert_request_via_string;
   MgmtByte insert_response_via_string;
 
@@ -823,7 +824,6 @@ public:
 
   MgmtByte ignore_accept_mismatch;
   MgmtByte ignore_accept_language_mismatch;
-  MgmtByte ignore_accept_encoding_mismatch;
   MgmtByte ignore_accept_charset_mismatch;
 
   MgmtByte send_100_continue_response;
@@ -930,7 +930,6 @@ inline HttpConfigParams::HttpConfigParams()
     redirection_host_no_port(1),
     ignore_accept_mismatch(0),
     ignore_accept_language_mismatch(0),
-    ignore_accept_encoding_mismatch(0),
     ignore_accept_charset_mismatch(0),
     send_100_continue_response(0),
     disallow_post_100_continue(0),

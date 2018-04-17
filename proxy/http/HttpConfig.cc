@@ -1343,7 +1343,7 @@ HttpConfig::reconfigure()
 
   params->ignore_accept_mismatch          = m_master.ignore_accept_mismatch;
   params->ignore_accept_language_mismatch = m_master.ignore_accept_language_mismatch;
-  params->oride.ignore_accept_encoding_mismatch = m_master.ignore_accept_encoding_mismatch;
+  params->oride.ignore_accept_encoding_mismatch = m_master.oride.ignore_accept_encoding_mismatch;
   params->ignore_accept_charset_mismatch  = m_master.ignore_accept_charset_mismatch;
 
   params->send_100_continue_response = INT_TO_BOOL(m_master.send_100_continue_response);
