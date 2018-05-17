@@ -3055,7 +3055,11 @@ HttpTransact::handle_cache_write_lock(State *s)
     s->request_sent_time      = UNDEFINED_TIME;
     s->response_received_time = UNDEFINED_TIME;
     s->cache_info.action      = CACHE_DO_LOOKUP;
+    //s->cache_info.write_status = CACHE_WRITE_LOCK_MISS;
     remove_ims                = true;
+    DebugTxn("http_error", "cache_write_lock fail, saw WL_READ_RETRY, setting LOOKUP");
+    TRANSACT_RETURN(SM_ACTION_CACHE_LOOKUP, nullptr);
+    //TRANSACT_RETURN(SM_ACTION_DNS_LOOKUP, nullptr);
     SET_VIA_STRING(VIA_DETAIL_CACHE_TYPE, VIA_DETAIL_CACHE);
     break;
   case CACHE_WL_INIT:
