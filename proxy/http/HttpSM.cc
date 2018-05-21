@@ -2453,25 +2453,13 @@ HttpSM::state_cache_open_write(int event, void *data)
       break;
     } else {
       t_state.cache_open_write_fail_action = t_state.txn_conf->cache_open_write_fail_action;
-      if (//!t_state.cache_info.object_read ||
+      if (!t_state.cache_info.object_read ||
           (t_state.cache_open_write_fail_action == HttpTransact::CACHE_WL_FAIL_ACTION_ERROR_ON_MISS_OR_REVALIDATE)) {
         // cache miss, set wl_state to fail
         DebugSM("http", "[%" PRId64 "] cache object read %p, cache_wl_fail_action %d", sm_id, t_state.cache_info.object_read,
                 t_state.cache_open_write_fail_action);
         t_state.cache_info.write_lock_state = HttpTransact::CACHE_WL_FAIL;
         break;
-      }
-      
-      else if (!t_state.cache_info.object_read) {
-        t_state.cache_open_write_fail_action = t_state.txn_conf->cache_open_write_fail_action;
-        DebugSM("http", "[%" PRId64 "] cache object read %p, cache_wl_fail_action %d SETTING READ_RETRY", sm_id, t_state.cache_info.object_read,
-                t_state.cache_open_write_fail_action);
-
-        //Reschedule for write lock retry
-        pending_action = eventProcessor.schedule_in(this, HRTIME_MSECONDS(100));
-                t_state.cache_info.write_lock_state = HttpTransact::CACHE_WL_READ_RETRY;
-                //event = CACHE_EVENT_LOOKUP;
-                break;
       }
     }
   // INTENTIONAL FALL THROUGH
@@ -4552,8 +4540,6 @@ HttpSM::do_cache_lookup_and_read()
     ink_assert(!pending_action);
     pending_action = cache_action_handle;
   }
-
-  DebugSM("http_seq", "[HttpSM::do_cache_lookup_and_read] [%" PRId64 "] fail state for cache open read: %d", sm_id, cache_action_handle);
 
   REMEMBER((long)pending_action, reentrancy_count);
 
