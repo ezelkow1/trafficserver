@@ -3044,7 +3044,7 @@ HttpTransact::handle_cache_write_lock(State *s)
     case CACHE_WL_FAIL_ACTION_STALE_ON_REVALIDATE:
       s->cache_info.write_status = CACHE_WRITE_LOCK_MISS;
       remove_ims                 = true;
-      s->cache_info.action = CACHE_DO_LOOKUP;
+      s->cache_info.action = CACHE_DO_NO_ACTION;
       DebugTxn("http_error", "cache_open_write_fail_action %d, cache miss, doing wl read retry", s->cache_open_write_fail_action);
       //TRANSACT_RETURN(SM_ACTION_INTERNAL_CACHE_NOOP, nullptr);
       //return;
@@ -3062,7 +3062,7 @@ HttpTransact::handle_cache_write_lock(State *s)
     //
     s->request_sent_time      = UNDEFINED_TIME;
     s->response_received_time = UNDEFINED_TIME;
-    s->cache_info.action      = CACHE_DO_NO_ACTION;
+    s->cache_info.action      = CACHE_DO_LOOKUP;
     remove_ims                = true;
     SET_VIA_STRING(VIA_DETAIL_CACHE_TYPE, VIA_DETAIL_CACHE);
     break;
