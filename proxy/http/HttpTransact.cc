@@ -3046,7 +3046,7 @@ HttpTransact::handle_cache_write_lock(State *s)
       remove_ims                 = true;
       s->cache_info.action = CACHE_DO_LOOKUP;
       DebugTxn("http_error", "cache_open_write_fail_action %d, cache miss, doing lookup", s->cache_open_write_fail_action);
-      TRANSACT_RETURN(SM_ACTION_SERVE_FROM_CACHE, nullptr);
+      TRANSACT_RETURN(SM_ACTION_INTERNAL_CACHE_NOOP, nullptr);
       return;
     default:
       s->cache_info.write_status = CACHE_WRITE_LOCK_MISS;
