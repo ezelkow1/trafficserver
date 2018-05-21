@@ -3044,7 +3044,7 @@ HttpTransact::handle_cache_write_lock(State *s)
     case CACHE_WL_FAIL_ACTION_STALE_ON_REVALIDATE:
       s->cache_info.write_status = CACHE_WRITE_LOCK_MISS;
       remove_ims                 = true;
-      //s->cache_info.action = CACHE_DO_NO_ACTION;
+      s->cache_info.action = CACHE_DO_LOOKUP;
       DebugTxn("http_error", "cache_open_write_fail_action %d, cache miss, doing lookup", s->cache_open_write_fail_action);
       TRANSACT_RETURN(SM_ACTION_CACHE_LOOKUP, nullptr);
       return;
