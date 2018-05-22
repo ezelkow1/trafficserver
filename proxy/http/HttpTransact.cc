@@ -2441,6 +2441,7 @@ DebugTxn("http_seq", "Finished getting times");
     DebugTxn("http_seq", "[HttpTransact::HandleCacheOpenReadHitFreshness] lookup result is LOOKUP_NONE");
     if (s->cache_open_write_fail_action == CACHE_WL_FAIL_ACTION_COLLAPSE) {
       freshness = FRESHNESS_FRESH;
+      s->force_dns = true;
     } else {
       freshness = what_is_document_freshness(s, &s->hdr_info.client_request, obj->response_get());
     }
