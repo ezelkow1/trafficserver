@@ -3041,7 +3041,7 @@ HttpTransact::handle_cache_write_lock(State *s)
 
       TRANSACT_RETURN(SM_ACTION_SEND_ERROR_CACHE_NOOP, nullptr);
       return;
-    case CACHE_WL_FAIL_ACTION_STALE_ON_REVALIDATE:
+    case CACHE_WL_FAIL_ACTION_COLLAPSE:
       s->cache_info.write_status = CACHE_WRITE_LOCK_MISS;
       remove_ims                 = true;
       //s->cache_info.action = CACHE_DO_NO_ACTION;
@@ -3052,6 +3052,7 @@ HttpTransact::handle_cache_write_lock(State *s)
       s->request_sent_time      = s->cache_info.object_read->request_sent_time_get();
       s->response_received_time = s->cache_info.object_read->response_received_time_get();
       s->cache_info.write_lock_state = CACHE_WL_READ_RETRY;
+      s->cache_info.action = CACHE_DO_LOOKUP;
       //return;
       break;
     default:
