@@ -2414,6 +2414,8 @@ HttpTransact::HandleCacheOpenReadHitFreshness(State *s)
     return;
   }
 
+  DebugTxn("http_seq", "[HttpTransact::HandleCacheOpenReadHitFreshness] finished delete all document alternates and return");
+
   s->request_sent_time      = obj->request_sent_time_get();
   s->response_received_time = obj->response_received_time_get();
 
@@ -2424,6 +2426,7 @@ HttpTransact::HandleCacheOpenReadHitFreshness(State *s)
   // so that ages are not negative, etc.
   s->request_sent_time      = std::min(s->client_request_time, s->request_sent_time);
   s->response_received_time = std::min(s->client_request_time, s->response_received_time);
+DebugTxn("http_seq", "Finished getting times");
 
   ink_assert(s->request_sent_time <= s->response_received_time);
 
