@@ -2437,8 +2437,14 @@ DebugTxn("http_seq", "Finished getting times");
   if (s->cache_lookup_result == HttpTransact::CACHE_LOOKUP_NONE) {
     // is the document still fresh enough to be served back to
     // the client without revalidation?
+    Freshness_t freshness;
     DebugTxn("http_seq", "[HttpTransact::HandleCacheOpenReadHitFreshness] lookup result is LOOKUP_NONE");
-    Freshness_t freshness = what_is_document_freshness(s, &s->hdr_info.client_request, obj->response_get());
+    if (s->cache_open_write_fail_action == CACHE_WL_FAIL_ACTION_COLLAPSE) {
+      freshness = FRESHNESS_FRESH;
+    } else {
+      freshness = what_is_document_freshness(s, &s->hdr_info.client_request, obj->response_get());
+    }
+
     DebugTxn("http_seq", "[HttpTransact::HandleCacheOpenReadHitFreshness] freshness is %d", freshness);
     switch (freshness) {
     case FRESHNESS_FRESH:
