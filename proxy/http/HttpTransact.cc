@@ -2418,7 +2418,7 @@ HttpTransact::HandleCacheOpenReadHitFreshness(State *s)
 
   s->request_sent_time      = obj->request_sent_time_get();
   s->response_received_time = obj->response_received_time_get();
-
+DebugTxn("http_seq", "[HttpTransact::HandleCacheOpenReadHitFreshness] got req/rep times");
   // There may be clock skew if one of the machines
   // went down and we do not have the correct delta
   // for it. this is just to deal with the effects
