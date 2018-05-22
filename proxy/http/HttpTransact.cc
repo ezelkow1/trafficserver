@@ -3049,6 +3049,8 @@ HttpTransact::handle_cache_write_lock(State *s)
       //TRANSACT_RETURN(SM_ACTION_INTERNAL_CACHE_NOOP, nullptr);
       //TRANSACT_RETURN(SM_ACTION_CACHE_LOOKUP, nullptr);
       //HttpTransact::DecideCacheLookup(s);
+      s->request_sent_time      = s->cache_info.object_read->request_sent_time_get();
+      s->response_received_time = s->cache_info.object_read->response_received_time_get();
       s->cache_info.write_lock_state = CACHE_WL_READ_RETRY;
       //return;
       break;
