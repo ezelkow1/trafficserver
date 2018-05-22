@@ -3052,7 +3052,13 @@ HttpTransact::handle_cache_write_lock(State *s)
       s->request_sent_time      = s->cache_info.object_read->request_sent_time_get();
       s->response_received_time = s->cache_info.object_read->response_received_time_get();
       s->cache_info.write_lock_state = CACHE_WL_READ_RETRY;
-      s->cache_info.action = CACHE_DO_LOOKUP;
+
+          s->request_sent_time      = UNDEFINED_TIME;
+    s->response_received_time = UNDEFINED_TIME;
+    s->cache_info.action      = CACHE_DO_LOOKUP;
+    remove_ims                = true;
+    SET_VIA_STRING(VIA_DETAIL_CACHE_TYPE, VIA_DETAIL_CACHE);
+      //s->cache_info.action = CACHE_DO_LOOKUP;
       //return;
       break;
     default:
