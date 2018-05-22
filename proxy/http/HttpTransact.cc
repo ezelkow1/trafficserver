@@ -3048,7 +3048,8 @@ HttpTransact::handle_cache_write_lock(State *s)
       DebugTxn("http_error", "cache_open_write_fail_action %d, cache miss, doing wl read retry", s->cache_open_write_fail_action);
       //TRANSACT_RETURN(SM_ACTION_INTERNAL_CACHE_NOOP, nullptr);
       //TRANSACT_RETURN(SM_ACTION_CACHE_LOOKUP, nullptr);
-      HttpTransact::DecideCacheLookup(s);
+      //HttpTransact::DecideCacheLookup(s);
+      s->cache_info.write_lock_state = CACHE_WL_READ_RETRY;
       //return;
       break;
     default:
