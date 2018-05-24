@@ -155,7 +155,7 @@ HttpCacheSM::state_cache_open_read(int event, void *data)
     // than or equal to the max number of open read retries,
     // else treat as a cache miss.
     ink_assert(open_read_tries <= master_sm->t_state.txn_conf->max_cache_open_read_retries || write_locked);
-    Debug("http_cache",
+    Debug("http_cf",
           "[%" PRId64 "] [state_cache_open_read] cache open read failure %d. "
           "retrying cache open read...",
           master_sm->sm_id, open_read_tries);
@@ -194,7 +194,7 @@ HttpCacheSM::state_cache_open_write(int event, void *data)
     } else {
       // The cache is hosed or full or something.
       // Forward the failure to the main sm
-      Debug("http_cache",
+      Debug("http_cf",
             "[%" PRId64 "] [state_cache_open_write] cache open write failure %d. "
             "done retrying...",
             master_sm->sm_id, open_write_tries);
@@ -207,15 +207,21 @@ HttpCacheSM::state_cache_open_write(int event, void *data)
     // Retry the cache open write if the number retries is less
     // than or equal to the max number of open write retries
     ink_assert(open_write_tries <= master_sm->t_state.txn_conf->max_cache_open_write_retries);
-    Debug("http_cache",
+    Debug("http_cf",
           "[%" PRId64 "] [state_cache_open_write] cache open write failure %d. "
           "retrying cache open write...",
           master_sm->sm_id, open_write_tries);
 
-    open_write(
-      &cache_key, lookup_url, read_request_hdr, master_sm->t_state.cache_info.object_read,
-      (time_t)((master_sm->t_state.cache_control.pin_in_cache_for < 0) ? 0 : master_sm->t_state.cache_control.pin_in_cache_for),
-      retry_write, false);
+    if (master_sm->t_state.txn_conf->cache_open_write_fail_action != HttpTransact::CACHE_WL_FAIL_ACTION_COLLAPSED_FORWARDING) {
+      open_write(
+        &cache_key, lookup_url, read_request_hdr, master_sm->t_state.cache_info.object_read,
+        (time_t)((master_sm->t_state.cache_control.pin_in_cache_for < 0) ? 0 : master_sm->t_state.cache_control.pin_in_cache_for),
+        retry_write, false);
+    } else {
+      Debug("http_cf", "[%" PRId64 "] [state_cache_open_write] cache open write failure INTERVAL. Saw CF, not attempting write",
+            master_sm->sm_id);
+      master_sm->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, data);
+    }
     break;
 
   default:
@@ -319,6 +325,8 @@ HttpCacheSM::open_write(const HttpCacheKey *key, URL *url, HTTPHdr *request, Cac
   open_write_tries++;
   this->retry_write = retry;
 
+Debug("http_cf", "[%" PRId64 "] [open_write] collapsed in open_write, incremented retries to %d",
+            master_sm->sm_id, open_write_tries);
   // We should be writing the same document we did
   //  a lookup on
   // this is no longer true for multiple cache lookup
@@ -336,6 +344,8 @@ HttpCacheSM::open_write(const HttpCacheKey *key, URL *url, HTTPHdr *request, Cac
   if (open_write_tries > master_sm->redirection_tries &&
       open_write_tries > master_sm->t_state.txn_conf->max_cache_open_write_retries) {
     master_sm->handleEvent(CACHE_EVENT_OPEN_WRITE_FAILED, (void *)-ECACHE_DOC_BUSY);
+    Debug("http_cf", "[%" PRId64 "] [open_write] collapsed open write failed out of tries",
+            master_sm->sm_id);
     return ACTION_RESULT_DONE;
   }
 
@@ -345,6 +355,8 @@ HttpCacheSM::open_write(const HttpCacheKey *key, URL *url, HTTPHdr *request, Cac
                               allow_multiple ? (CacheHTTPInfo *)CACHE_ALLOW_MULTIPLE_WRITES : old_info, pin_in_cache);
 
   if (action_handle != ACTION_RESULT_DONE) {
+        Debug("http_cache", "[%" PRId64 "] [open_write] collapsed open write action != done",
+            master_sm->sm_id);
     pending_action = action_handle;
   }
   // Check to see if we've already called the user back
@@ -352,8 +364,12 @@ HttpCacheSM::open_write(const HttpCacheKey *key, URL *url, HTTPHdr *request, Cac
   //  return our captive action and ensure that we are actually
   //  doing something useful
   if (open_write_cb == true) {
+            Debug("http_cache", "[%" PRId64 "] [open_write] collapsed open write openwritecb==true",
+            master_sm->sm_id);
     return ACTION_RESULT_DONE;
   } else {
+            Debug("http_cache", "[%" PRId64 "] [open_write] collapsed open write openwritecb!=true",
+            master_sm->sm_id);
     ink_assert(pending_action != nullptr);
     return &captive_action;
   }
