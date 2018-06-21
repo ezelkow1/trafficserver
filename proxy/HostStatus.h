@@ -23,7 +23,7 @@
 
 /*****************************************************************************
  *
- *  HostSelection.h - Interface to Host Selection System
+ *  HostStatus.h - Interface to Host Status System
  *
  *
  ****************************************************************************/
@@ -31,8 +31,10 @@
 #pragma once
 
 #include "ControlBase.h"
-#include "ControlMatcher.h"
 #include "records/P_RecProcess.h"
+#include "tscore/ink_hash_table.h"
+#include <time.h>
+#include <string>
 
 enum HostStatus_t {
   HOST_STATUS_INIT,
@@ -46,7 +48,26 @@ struct HostStatRec_t {
   unsigned int down_time; // number of seconds that the host should be down, 0 is indefinately
 };
 
-const std::string stat_prefix = "host_status.";
+struct Reasons {
+  static constexpr const char *ACTIVE = "active";
+  static constexpr const char *LOCAL  = "local";
+  static constexpr const char *MANUAL = "manual";
+
+  static constexpr const char *reasons[3] = {ACTIVE, LOCAL, MANUAL};
+
+  static bool
+  validReason(const char *reason)
+  {
+    for (const char *i : reasons) {
+      if (strcmp(i, reason) == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
+static const std::string stat_prefix = "proxy.process.host_status.";
 
 /**
  * Singleton placeholder for next hop status.
@@ -60,16 +81,16 @@ struct HostStatus {
     static HostStatus instance;
     return instance;
   }
-  void setHostStatus(const char *name, const HostStatus_t status, const unsigned int down_time);
+  void setHostStatus(const char *name, const HostStatus_t status, const unsigned int down_time, const char *reason);
   HostStatus_t getHostStatus(const char *name);
   void createHostStat(const char *name);
+  int getHostStatId(const char *name);
 
 private:
   int next_stat_id = 1;
   HostStatus();
   HostStatus(const HostStatus &obj) = delete;
   HostStatus &operator=(HostStatus const &) = delete;
-  int getHostStatId(const char *name);
 
   InkHashTable *hosts_statuses;  // next hop status, key is hostname or ip string, data is bool (available).
   InkHashTable *hosts_stats_ids; // next hop stat ids, key is hostname or ip string, data is int stat id.
