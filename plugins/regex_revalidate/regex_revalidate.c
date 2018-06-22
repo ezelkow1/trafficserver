@@ -398,7 +398,7 @@ get_date_from_cached_hdr(TSHttpTxn txn)
     }
     TSHandleMLocRelease(buf, TS_NULL_MLOC, hdr_loc);
   }
-
+TSDebug(LOG_PREFIX, "get_date_from_cached_hdr: %ld", date);
   return date;
 }
 

@@ -127,6 +127,10 @@ HttpCacheSM::state_cache_open_read(int event, void *data)
     }
     open_read_cb  = true;
     cache_read_vc = (CacheVConnection *)data;
+    if (master_sm->t_state.txn_conf->cache_open_write_fail_action == HttpTransact::CACHE_WL_FAIL_ACTION_COLLAPSED_FORWARDING) {
+      master_sm->t_state.cache_info.write_status = HttpTransact::NO_CACHE_WRITE;
+      master_sm->t_state.cache_info.write_lock_state = HttpTransact::CACHE_WL_INIT;
+    }
     master_sm->handleEvent(event, data);
     break;
 
