@@ -4892,6 +4892,8 @@ TSHttpTxnCachedRespGet(TSHttpTxn txnp, TSMBuffer *bufp, TSMLoc *obj)
 
   *(reinterpret_cast<HdrHeapSDKHandle **>(bufp)) = *handle;
   *obj                                           = reinterpret_cast<TSMLoc>(cached_hdr->m_http);
+
+  printf("\n%s magic is %d\n", __FUNCTION__, (*handle)->m_heap->m_magic);
   sdk_assert(sdk_sanity_check_mbuffer(*bufp) == TS_SUCCESS);
 
   return TS_SUCCESS;
