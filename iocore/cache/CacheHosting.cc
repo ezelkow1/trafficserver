@@ -619,6 +619,7 @@ ConfigVolumes::BuildListFromString(char *config_file_path, char *file_buf)
   num_volumes        = 0;
   num_stream_volumes = 0;
   num_http_volumes   = 0;
+  num_http_ram_volumes = 0;
 
   if (bufTok.Initialize(file_buf, SHARE_TOKS | ALLOW_EMPTY_TOKS) == 0) {
     // We have an empty file
@@ -699,6 +700,9 @@ ConfigVolumes::BuildListFromString(char *config_file_path, char *file_buf)
         } else if (!strcasecmp(tmp, "mixt")) {
           tmp += 4;
           scheme = CACHE_RTSP_TYPE;
+        } else if (!strcasecmp(tmp, "ramv")) {
+          tmp += 4;
+          scheme = CACHE_HTTP_RAM_TYPE;
         } else {
           err = "Unexpected end of line";
           break;
@@ -751,6 +755,8 @@ ConfigVolumes::BuildListFromString(char *config_file_path, char *file_buf)
       num_volumes++;
       if (scheme == CACHE_HTTP_TYPE) {
         num_http_volumes++;
+      } else if (scheme == CACHE_HTTP_RAM_TYPE) {
+        num_http_ram_volumes++;
       } else {
         num_stream_volumes++;
       }
@@ -826,7 +832,7 @@ create_config(RegressionTest *t, int num)
           break;
         ConfigVol *cp  = new ConfigVol();
         cp->number     = vol_num++;
-        cp->scheme     = CACHE_HTTP_TYPE;
+        cp->scheme     = CACHE_HTTP_RAM_TYPE;
         cp->size       = 128;
         cp->in_percent = false;
         cp->cachep     = nullptr;
@@ -932,7 +938,10 @@ create_config(RegressionTest *t, int num)
       if (cp->scheme == CACHE_HTTP_TYPE) {
         config_volumes.num_http_volumes++;
         rprintf(t, "volume=%d scheme=http size=%d\n", cp->number, cp->size);
-      } else {
+      } else if (cp->scheme == CACHE_HTTP_RAM_TYPE) {
+        config_volumes.num_http_ram_volumes++;
+        rprintf(t, "volume=%d scheme=http_ram size=%d\n", cp->number, cp->size);
+      }else {
         config_volumes.num_stream_volumes++;
         rprintf(t, "volume=%d scheme=rtsp size=%d\n", cp->number, cp->size);
       }
@@ -1047,6 +1056,7 @@ ClearConfigVol(ConfigVolumes *configp)
   configp->num_volumes        = 0;
   configp->num_http_volumes   = 0;
   configp->num_stream_volumes = 0;
+  configp->num_http_ram_volumes = 0;
   return 1;
 }
 

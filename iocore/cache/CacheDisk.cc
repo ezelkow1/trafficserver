@@ -310,6 +310,7 @@ CacheDisk::create_volume(int number, off_t size_in_blocks, int scheme)
   p->len    = size_in_blocks;
   p->free   = 0;
   p->number = number;
+  Debug("cache_disk", "create_volume %d, scheme: %d", number, scheme);
   p->type   = scheme;
   header->num_used++;
 

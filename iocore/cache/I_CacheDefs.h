@@ -58,7 +58,8 @@
 enum CacheType {
   CACHE_NONE_TYPE = 0, // for empty disk fragments
   CACHE_HTTP_TYPE = 1,
-  CACHE_RTSP_TYPE = 2
+  CACHE_RTSP_TYPE = 2,
+  CACHE_HTTP_RAM_TYPE = 3
 };
 
 // NOTE: All the failures are ODD, and one greater than the success
@@ -113,6 +114,7 @@ enum CacheFragType {
   CACHE_FRAG_TYPE_HTTP_V23, ///< DB version 23 or prior.
   CACHE_FRAG_TYPE_RTSP,     ///< Should be removed once Cache Toolkit is implemented.
   CACHE_FRAG_TYPE_HTTP,
+  CACHE_FRAG_TYPE_HTTP_RAM,
   NUM_CACHE_FRAG_TYPES
 };
 

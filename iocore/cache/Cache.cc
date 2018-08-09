@@ -92,6 +92,7 @@ int cache_config_compatibility_4_2_0_fixup = 1;
 RecRawStatBlock *cache_rsb          = nullptr;
 Cache *theStreamCache               = nullptr;
 Cache *theCache                     = nullptr;
+Cache *theRamCache                  = nullptr;
 CacheDisk **gdisks                  = nullptr;
 int gndisks                         = 0;
 static volatile int initialize_disk = 0;
@@ -694,7 +695,7 @@ CacheProcessor::start_internal(int flags)
         if (sd->hash_base_string)
           gdisks[gndisks]->hash_base_string = ats_strdup(sd->hash_base_string);
 
-        Debug("cache_hosting", "Disk: %d, blocks: %" PRId64 "", gndisks, blocks);
+        Debug("cache_hosting", "Disk: %d, blocks: %" PRId64"", gndisks, blocks);
 
         if (sector_size < cache_config_force_sector_size) {
           sector_size = cache_config_force_sector_size;
@@ -808,11 +809,13 @@ CacheProcessor::diskInitialized()
     /* create the cachevol list only if num volumes are greater
        than 0. */
     if (config_volumes.num_volumes == 0) {
+      Debug("cache_init", "Disksinit numvols is 0, calling reconfigure");
       res = cplist_reconfigure();
       /* if no volumes, default to just an http cache */
     } else {
       // else
       /* create the cachevol list. */
+      Debug("cache_init","Disksinit non0 vols, calling init, then reconfigure");
       cplist_init();
       /* now change the cachevol list based on the config file */
       res = cplist_reconfigure();
@@ -852,9 +855,10 @@ CacheProcessor::diskInitialized()
       if (!check)
         d->sync();
     }
+    Debug("cache_hosting", "Creating vols, num: %d, http: %d, ram: %d", config_volumes.num_volumes, config_volumes.num_http_volumes, config_volumes.num_http_ram_volumes);
     if (config_volumes.num_volumes == 0) {
       theCache         = new Cache();
-      theCache->scheme = CACHE_HTTP_TYPE;
+      theCache->scheme = CACHE_HTTP_RAM_TYPE;
       theCache->open(clear, fix);
       return;
     }
@@ -869,6 +873,12 @@ CacheProcessor::diskInitialized()
       theStreamCache->scheme = CACHE_RTSP_TYPE;
       theStreamCache->open(clear, fix);
     }
+
+    if (config_volumes.num_http_ram_volumes != 0) {
+      theRamCache          = new Cache();
+      theRamCache->scheme  = CACHE_HTTP_RAM_TYPE;
+      theRamCache->open(clear, fix);
+    }
   }
 }
 
@@ -877,7 +887,7 @@ CacheProcessor::cacheInitialized()
 {
   int i;
 
-  if ((theCache && (theCache->ready == CACHE_INITIALIZING)) || (theStreamCache && (theStreamCache->ready == CACHE_INITIALIZING)))
+  if ((theCache && (theCache->ready == CACHE_INITIALIZING)) || (theStreamCache && (theStreamCache->ready == CACHE_INITIALIZING)) || (theRamCache && (theRamCache->ready == CACHE_INITIALIZING)) )
     return;
   int caches_ready  = 0;
   int cache_init_ok = 0;
@@ -904,7 +914,12 @@ CacheProcessor::cacheInitialized()
     Debug("cache_init", "CacheProcessor::cacheInitialized - theStreamCache, total_size = %" PRId64 " = %" PRId64 " MB", total_size,
           total_size / ((1024 * 1024) / STORE_BLOCK_SIZE));
   }
-
+  if (theRamCache) {
+    total_size += theRamCache->cache_size;
+    Debug("cache_init", "CacheProcessor::cacheInitialized - theRamCache, total_size = %" PRId64 " = %" PRId64 " MB", total_size,
+          total_size / ((1024 * 1024) / STORE_BLOCK_SIZE));
+  }
+Debug("cache_init", "Cacheprocessor: cacheinit finished");
   if (theCache) {
     if (theCache->ready == CACHE_INIT_FAILED) {
       Debug("cache_init", "CacheProcessor::cacheInitialized - failed to initialize the cache for http: cache disabled");
@@ -925,19 +940,34 @@ CacheProcessor::cacheInitialized()
       caches[CACHE_FRAG_TYPE_RTSP] = theStreamCache;
     }
   }
-
+  if (theRamCache) {
+    if (theRamCache->ready == CACHE_INIT_FAILED) {
+      Debug("cache_init", "CacheProcessor::cacheInitialized - failed to initialize the cache for http: cache disabled");
+      Warning("failed to initialize the cache for http: cache disabled\n");
+    } else {
+      Debug("cache_init", "cacheinit - ramcache ready: %d", theRamCache->ready);
+      caches_ready                 = caches_ready | (1 << CACHE_FRAG_TYPE_HTTP_RAM);
+      caches[CACHE_FRAG_TYPE_HTTP_RAM] = theRamCache;
+      Debug("cache_init","cacheinit - finished ramcache read: %d", caches_ready);
+    }
+  }
+Debug("cache_init","updating strip version data");
   // Update stripe version data.
   if (gnvol) // start with whatever the first stripe is.
     cacheProcessor.min_stripe_version = cacheProcessor.max_stripe_version = gvol[0]->header->version;
+
+  Debug("cache_init", "finished initial stripe, move to rest");
   // scan the rest of the stripes.
   for (i = 1; i < gnvol; i++) {
     Vol *v = gvol[i];
+    if (v != NULL ) {
     if (v->header->version < cacheProcessor.min_stripe_version)
       cacheProcessor.min_stripe_version = v->header->version;
     if (cacheProcessor.max_stripe_version < v->header->version)
       cacheProcessor.max_stripe_version = v->header->version;
+    }
   }
-
+Debug("cache_init", "finished scanning stripes");
   if (caches_ready) {
     Debug("cache_init", "CacheProcessor::cacheInitialized - caches_ready=0x%0X, gnvol=%d", (unsigned int)caches_ready, gnvol);
 
@@ -946,43 +976,51 @@ CacheProcessor::cacheInitialized()
     if (gnvol) {
       // new ram_caches, with algorithm from the config
       for (i = 0; i < gnvol; i++) {
-        switch (cache_config_ram_cache_algorithm) {
-        default:
-        case RAM_CACHE_ALGORITHM_CLFUS:
-          gvol[i]->ram_cache = new_RamCacheCLFUS();
-          break;
-        case RAM_CACHE_ALGORITHM_LRU:
-          gvol[i]->ram_cache = new_RamCacheLRU();
-          break;
+        if (gvol[i]->cache->scheme == CACHE_HTTP_RAM_TYPE){
+          cache_config_ram_cache_size = 0;
+          gvol[i]->ram_cache = NULL;
+        } else {
+          switch (cache_config_ram_cache_algorithm) {
+          default:
+          case RAM_CACHE_ALGORITHM_CLFUS:
+            gvol[i]->ram_cache = new_RamCacheCLFUS();
+            break;
+          case RAM_CACHE_ALGORITHM_LRU:
+            gvol[i]->ram_cache = new_RamCacheLRU();
+            break;
+          }
         }
       }
       // let us calculate the Size
       if (cache_config_ram_cache_size == AUTO_SIZE_RAM_CACHE) {
         Debug("cache_init", "CacheProcessor::cacheInitialized - cache_config_ram_cache_size == AUTO_SIZE_RAM_CACHE");
-        for (i = 0; i < gnvol; i++) {
-          vol = gvol[i];
-          gvol[i]->ram_cache->init(vol_dirlen(vol) * DEFAULT_RAM_CACHE_MULTIPLIER, vol);
-          ram_cache_bytes += vol_dirlen(gvol[i]);
-          Debug("cache_init", "CacheProcessor::cacheInitialized - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", ram_cache_bytes,
-                ram_cache_bytes / (1024 * 1024));
-          CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)vol_dirlen(gvol[i]));
+        if (gvol[i]->cache->scheme == CACHE_HTTP_RAM_TYPE) {
+          ram_cache_bytes += 0;
+        } else {
+          for (i = 0; i < gnvol; i++) {
+            vol = gvol[i];
+            gvol[i]->ram_cache->init(vol_dirlen(vol) * DEFAULT_RAM_CACHE_MULTIPLIER, vol);
+            ram_cache_bytes += vol_dirlen(gvol[i]);
+            Debug("cache_init", "CacheProcessor::cacheInitialized - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", ram_cache_bytes,
+                  ram_cache_bytes / (1024 * 1024));
+            CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)vol_dirlen(gvol[i]));
 
-          vol_total_cache_bytes = gvol[i]->len - vol_dirlen(gvol[i]);
-          total_cache_bytes += vol_total_cache_bytes;
-          Debug("cache_init", "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
-                total_cache_bytes, total_cache_bytes / (1024 * 1024));
+            vol_total_cache_bytes = gvol[i]->len - vol_dirlen(gvol[i]);
+            total_cache_bytes += vol_total_cache_bytes;
+            Debug("cache_init", "CacheProcessor::cacheInitialized - total_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
+                  total_cache_bytes, total_cache_bytes / (1024 * 1024));
 
-          CACHE_VOL_SUM_DYN_STAT(cache_bytes_total_stat, vol_total_cache_bytes);
+            CACHE_VOL_SUM_DYN_STAT(cache_bytes_total_stat, vol_total_cache_bytes);
 
-          vol_total_direntries = gvol[i]->buckets * gvol[i]->segments * DIR_DEPTH;
-          total_direntries += vol_total_direntries;
-          CACHE_VOL_SUM_DYN_STAT(cache_direntries_total_stat, vol_total_direntries);
+            vol_total_direntries = gvol[i]->buckets * gvol[i]->segments * DIR_DEPTH;
+            total_direntries += vol_total_direntries;
+            CACHE_VOL_SUM_DYN_STAT(cache_direntries_total_stat, vol_total_direntries);
 
-          vol_used_direntries = dir_entries_used(gvol[i]);
-          CACHE_VOL_SUM_DYN_STAT(cache_direntries_used_stat, vol_used_direntries);
-          used_direntries += vol_used_direntries;
+            vol_used_direntries = dir_entries_used(gvol[i]);
+            CACHE_VOL_SUM_DYN_STAT(cache_direntries_used_stat, vol_used_direntries);
+            used_direntries += vol_used_direntries;
+          }
         }
-
       } else {
         // we got configured memory size
         // TODO, should we check the available system memories, or you will
@@ -1003,19 +1041,25 @@ CacheProcessor::cacheInitialized()
         for (i = 0; i < gnvol; i++) {
           vol = gvol[i];
           double factor;
-          if (gvol[i]->cache == theCache) {
-            factor = (double)(int64_t)(gvol[i]->len >> STORE_BLOCK_SHIFT) / (int64_t)theCache->cache_size;
-            Debug("cache_init", "CacheProcessor::cacheInitialized - factor = %f", factor);
-            gvol[i]->ram_cache->init((int64_t)(http_ram_cache_size * factor), vol);
-            ram_cache_bytes += (int64_t)(http_ram_cache_size * factor);
-            CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)(http_ram_cache_size * factor));
-          } else {
-            factor = (double)(int64_t)(gvol[i]->len >> STORE_BLOCK_SHIFT) / (int64_t)theStreamCache->cache_size;
-            Debug("cache_init", "CacheProcessor::cacheInitialized - factor = %f", factor);
-            gvol[i]->ram_cache->init((int64_t)(stream_ram_cache_size * factor), vol);
-            ram_cache_bytes += (int64_t)(stream_ram_cache_size * factor);
-            CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)(stream_ram_cache_size * factor));
-          }
+          //if (gvol[i]->cache->scheme != CACHE_HTTP_RAM_TYPE) {
+            if (gvol[i]->cache == theCache) {
+              factor = (double)(int64_t)(gvol[i]->len >> STORE_BLOCK_SHIFT) / (int64_t)theCache->cache_size;
+              Debug("cache_init", "CacheProcessor::cacheInitialized - factor = %f", factor);
+              gvol[i]->ram_cache->init((int64_t)(http_ram_cache_size * factor), vol);
+              ram_cache_bytes += (int64_t)(http_ram_cache_size * factor);
+              CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)(http_ram_cache_size * factor));
+            } else if (gvol[i]->cache == theStreamCache) {
+              factor = (double)(int64_t)(gvol[i]->len >> STORE_BLOCK_SHIFT) / (int64_t)theStreamCache->cache_size;
+              Debug("cache_init", "CacheProcessor::cacheInitialized - factor = %f", factor);
+              gvol[i]->ram_cache->init((int64_t)(stream_ram_cache_size * factor), vol);
+              ram_cache_bytes += (int64_t)(stream_ram_cache_size * factor);
+              CACHE_VOL_SUM_DYN_STAT(cache_ram_cache_bytes_total_stat, (int64_t)(stream_ram_cache_size * factor));
+            } else {
+              //theRamCache, do nothing for small ram cache
+              Debug("cache_init", "CacheProcessor::cacheInitialized - saw RamCache, not setting rambytes");
+              gvol[i]->ram_cache = NULL;
+            }
+          //}
           Debug("cache_init", "CacheProcessor::cacheInitialized[%d] - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", i,
                 ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
           vol_total_cache_bytes = gvol[i]->len - vol_dirlen(gvol[i]);
@@ -1061,6 +1105,7 @@ CacheProcessor::cacheInitialized()
     } else
       Warning("cache unable to open any vols, disabled");
   }
+  Debug("cache_init", "finished caches ready");
   if (cache_init_ok) {
     // Initialize virtual cache
     CacheProcessor::initialized = CACHE_INITIALIZED;
@@ -2047,6 +2092,10 @@ CacheProcessor::mark_storage_offline(CacheDisk *d, ///< Target disk
     rebuild_host_table(theStreamCache);
   }
 
+  if (theRamCache) {
+    rebuild_host_table(theRamCache);
+  }
+
   zret = this->has_online_storage();
   if (!zret) {
     Warning("All storage devices offline, cache disabled");
@@ -2066,6 +2115,14 @@ CacheProcessor::mark_storage_offline(CacheDisk *d, ///< Target disk
       caches_ready              = ~caches_ready;
       CacheProcessor::cache_ready &= caches_ready;
       Warning("all volumes for mixt cache are corrupt, mixt cache disabled");
+    }
+    if (theRamCache && !theRamCache->hosttable->gen_host_rec.vol_hash_table) {
+      unsigned int caches_ready = 0;
+      caches_ready              = caches_ready | (1 << CACHE_FRAG_TYPE_HTTP_RAM);
+      //caches_ready              = caches_ready | (1 << CACHE_FRAG_TYPE_NONE);
+      caches_ready              = ~caches_ready;
+      CacheProcessor::cache_ready &= caches_ready;
+      Warning("all volumes for ramv cache are corrupt, ramv cache disabled");
     }
   }
 
@@ -2165,6 +2222,8 @@ Cache::open(bool clear, bool /* fix ATS_UNUSED */)
 
   CacheVol *cp = cp_list.head;
   for (; cp; cp = cp->link.next) {
+    Debug("cache_init", "Cache::open - cpscheme: %d, scheme: %d", cp->scheme, scheme);
+    cp->scheme = scheme;
     if (cp->scheme == scheme) {
       cp->vols   = (Vol **)ats_malloc(cp->num_vols * sizeof(Vol *));
       int vol_no = 0;
@@ -2440,7 +2499,9 @@ CacheVC::handleReadDone(int event, Event *e)
                         (doc_len && (int64_t)doc_len < cache_config_ram_cache_cutoff) || !cache_config_ram_cache_cutoff);
         if (cutoff_check && !f.doc_from_ram_cache) {
           uint64_t o = dir_offset(&dir);
-          vol->ram_cache->put(read_key, buf.get(), doc->len, http_copy_hdr, (uint32_t)(o >> 32), (uint32_t)o);
+          if (vol->ram_cache != NULL) {
+            vol->ram_cache->put(read_key, buf.get(), doc->len, http_copy_hdr, (uint32_t)(o >> 32), (uint32_t)o);
+          }
         }
         if (!doc_len) {
           // keep a pointer to it. In case the state machine decides to
@@ -2473,7 +2534,10 @@ CacheVC::handleRead(int /* event ATS_UNUSED */, Event * /* e ATS_UNUSED */)
   // check ram cache
   ink_assert(vol->mutex->thread_holding == this_ethread());
   int64_t o           = dir_offset(&dir);
-  int ram_hit_state   = vol->ram_cache->get(read_key, &buf, (uint32_t)(o >> 32), (uint32_t)o);
+  int ram_hit_state = 0;
+  if (vol->ram_cache != NULL) {
+    ram_hit_state  = vol->ram_cache->get(read_key, &buf, (uint32_t)(o >> 32), (uint32_t)o);
+  }
   f.compressed_in_ram = (ram_hit_state > RAM_HIT_COMPRESS_NONE) ? 1 : 0;
   if (ram_hit_state >= RAM_HIT_COMPRESS_NONE) {
     goto LramHit;
@@ -2684,6 +2748,7 @@ cplist_init()
       CacheVol *p = cp_list.head;
       while (p) {
         if (p->vol_number == dp[j]->vol_number) {
+          Debug("cache_init", "cplist_init %d, type: %d", dp[j]->vol_number, dp[j]->dpb_queue.head->b->type);
           ink_assert(p->scheme == (int)dp[j]->dpb_queue.head->b->type);
           p->size += dp[j]->size;
           p->num_vols += dp[j]->num_volblocks;
@@ -2721,6 +2786,7 @@ cplist_update()
     for (config_vol = config_volumes.cp_queue.head; config_vol; config_vol = config_vol->link.next) {
       if (config_vol->number == cp->vol_number) {
         off_t size_in_blocks = config_vol->size << (20 - STORE_BLOCK_SHIFT);
+        Debug("cache_init", "cplist_update for %d, cpscheme: %d, vol scheme: %d", config_vol->number, cp->scheme, config_vol->scheme);
         if ((cp->size <= size_in_blocks) && (cp->scheme == config_vol->scheme)) {
           config_vol->cachep = cp;
         } else {
@@ -2792,6 +2858,7 @@ fillExclusiveDisks(CacheVol *cp)
     DiskVolBlock *dpb;
 
     do {
+      Debug("cache_init", "volume %d, scheme: %d", volume_number, cp->scheme);
       dpb = gdisks[i]->create_volume(volume_number, size_diff, cp->scheme);
       if (dpb) {
         if (!cp->disk_vols[i]) {
@@ -2822,7 +2889,7 @@ cplist_reconfigure()
     /* only the http cache */
     CacheVol *cp   = new CacheVol();
     cp->vol_number = 0;
-    cp->scheme     = CACHE_HTTP_TYPE;
+    cp->scheme     = CACHE_HTTP_RAM_TYPE;
     cp->disk_vols  = (DiskVol **)ats_malloc(gndisks * sizeof(DiskVol *));
     memset(cp->disk_vols, 0, gndisks * sizeof(DiskVol *));
     cp_list.enqueue(cp);
@@ -2840,7 +2907,7 @@ cplist_reconfigure()
         for (int p = 0; p < vols; p++) {
           off_t b = gdisks[i]->free_space / (vols - p);
           Debug("cache_hosting", "blocks = %" PRId64, (int64_t)b);
-          DiskVolBlock *dpb = gdisks[i]->create_volume(0, b, CACHE_HTTP_TYPE);
+          DiskVolBlock *dpb = gdisks[i]->create_volume(0, b, CACHE_HTTP_RAM_TYPE);
           ink_assert(dpb && dpb->len == (uint64_t)b);
         }
         ink_assert(gdisks[i]->free_space == 0);
@@ -2904,6 +2971,7 @@ cplist_reconfigure()
       if (!config_vol->cachep) {
         continue;
       }
+      Debug("cache_hosting", "Doing fillexclusive on %d, scheme: %d", config_vol->number, config_vol->cachep->scheme);
       fillExclusiveDisks(config_vol->cachep);
     }
 
@@ -2927,6 +2995,7 @@ cplist_reconfigure()
         CacheVol *new_cp  = new CacheVol();
         new_cp->disk_vols = (DiskVol **)ats_malloc(gndisks * sizeof(DiskVol *));
         memset(new_cp->disk_vols, 0, gndisks * sizeof(DiskVol *));
+        Debug("cache_hosting", "no entry, creating vol, Volume: %d, Scheme: %d", config_vol->number, config_vol->scheme);
         if (create_volume(config_vol->number, size_in_blocks, config_vol->scheme, new_cp)) {
           delete new_cp;
           return -1;
@@ -2993,6 +3062,7 @@ cplist_reconfigure()
 
         DiskVolBlock *dpb;
         do {
+          Debug("cache_hosting", "doing create vol, Volume: %d, Scheme: %d", config_vol->number, config_vol->scheme);
           dpb = gdisks[disk_no]->create_volume(volume_number, size_diff, cp->scheme);
           if (dpb) {
             if (!cp->disk_vols[disk_no]) {
@@ -3014,6 +3084,7 @@ cplist_reconfigure()
       delete[] sorted_vols;
 
       if (size_to_alloc) {
+        Debug("cache_hosting", "size to alloc: %lld, Volume: %d, Scheme: %d", size_to_alloc, config_vol->number, config_vol->scheme);
         if (create_volume(volume_number, size_to_alloc, cp->scheme, cp))
           return -1;
       }
@@ -3034,6 +3105,7 @@ create_volume(int volume_number, off_t size_in_blocks, int scheme, CacheVol *cp)
 
   cp->vol_number = volume_number;
   cp->scheme     = scheme;
+  Debug("cache_init", "create_volume on %d, scheme: %d", volume_number, scheme);
   if (fillExclusiveDisks(cp)) {
     Debug("cache_init", "volume successfully filled from forced disks: volume_number=%d", volume_number);
     return 0;
