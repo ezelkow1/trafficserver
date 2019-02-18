@@ -4704,9 +4704,14 @@ HttpSM::do_cache_prepare_action(HttpCacheSM *c_sm, CacheHTTPInfo *object_read_in
 void
 HttpSM::send_origin_throttled_response()
 {
+  // The old method of using CONGEST_CONTROL only works if congestion control is enabled. Without that this will cause dns->open
+  // looping since there is nothing to stop a connection. Setting to CONNECTION_ERROR forces it to close
   t_state.current.attempts = t_state.txn_conf->connect_attempts_max_retries;
-  // t_state.current.state = HttpTransact::CONNECTION_ERROR;
-  t_state.current.state = HttpTransact::CONGEST_CONTROL_CONGESTED_ON_F;
+  if (t_state.pCongestionEntry != NULL) {
+    t_state.current.state = HttpTransact::CONGEST_CONTROL_CONGESTED_ON_F;
+  } else {
+    t_state.current.state    = HttpTransact::CONNECTION_ERROR;
+  }
   call_transact_and_set_next_state(HttpTransact::HandleResponse);
 }
 
@@ -4985,6 +4990,9 @@ HttpSM::do_http_server_open(bool raw)
           send_origin_throttled_response();
         }
       } else { // the queue is set to 0
+        // queue is 0, just loop
+        //t_state.current.state = HttpTransact::CONGEST_CONTROL_CONGESTED_ON_F;
+        //call_transact_and_set_next_state(HttpTransact::HandleResponse);
         HTTP_INCREMENT_DYN_STAT(http_origin_connections_throttled_stat);
         send_origin_throttled_response();
       }
