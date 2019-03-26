@@ -583,14 +583,14 @@ TSRemapDoRemap(void *ih, TSHttpTxn txnp, TSRemapRequestInfo *rri)
   // check for path params.
   if (query == NULL || strstr(query, "E=") == NULL) {
     if ((url = urlParse(url, cfg->sig_anchor, new_path, 8192, path_params, 8192)) == NULL) {
-      err_log(url, "Has no signing query string or signing path parameters.");
+      TSDebug(PLUGIN_NAME, "Has no signing query string or signing path parameters.");
       goto deny;
     }
     has_path_params = true;
     query           = strstr(url, ";");
 
     if (query == NULL) {
-      err_log(url, "Has no signing query string or signing path parameters.");
+      TSDebug(PLUGIN_NAME, "Has no signing query string or signing path parameters.");
       goto deny;
     }
   }
