@@ -576,6 +576,16 @@ HttpTransact::BadRequest(State *s)
 }
 
 void
+HttpTransact::BadGateway(State *s)
+{
+  DebugTxn("http_trans", "[BadGateway]"
+                         "parser marked request bad");
+  bootstrap_state_variables_from_request(s, &s->hdr_info.client_request);
+  build_error_response(s, HTTP_STATUS_BAD_GATEWAY, "Invalid HTTP Request", "request#syntax_error", nullptr);
+  TRANSACT_RETURN(SM_ACTION_SEND_ERROR_CACHE_NOOP, nullptr);
+}
+
+void
 HttpTransact::PostActiveTimeoutResponse(State *s)
 {
   DebugTxn("http_trans", "[PostActiveTimeoutResponse]"
