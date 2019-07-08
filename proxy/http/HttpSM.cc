@@ -5938,7 +5938,7 @@ HttpSM::attach_server_session(HttpServerSession *s)
   if (t_state.api_txn_active_timeout_value != -1) {
     server_session->get_netvc()->set_active_timeout(HRTIME_MSECONDS(t_state.api_txn_active_timeout_value));
   } else {
-    server_session->get_netvc()->set_active_timeout(HRTIME_SECONDS(t_state.txn_conf->transaction_active_timeout_out));
+    server_session->get_netvc()->set_active_timeout(connect_timeout);
   }
 
   if (plugin_tunnel_type != HTTP_NO_PLUGIN_TUNNEL || will_be_private_ss) {
