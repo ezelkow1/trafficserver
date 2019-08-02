@@ -1174,44 +1174,44 @@ EXCLUSIVE_REGRESSION_TEST(PARENTSELECTION)(RegressionTest * /* t ATS_UNUSED */, 
   REINIT;
   br(request, "i.am.rabbit.net");
   FP;
-  RE(verify(result, PARENT_SPECIFIED, "fluffy", 80), 8);
+  RE(verify(result, PARENT_FAIL, "fluffy", 80), 8);
   // Test 10
   ST(10);
   REINIT;
   br(request, "i.am.rabbit.net");
   FP;
-  RE(verify(result, PARENT_SPECIFIED, "furry", 80), 9);
+  RE(verify(result, PARENT_FAIL, "furry", 80), 9);
   // Test 11
   ST(11);
   REINIT;
   br(request, "i.am.rabbit.net");
   FP;
-  RE(verify(result, PARENT_SPECIFIED, "frisky", 80), 10);
+  RE(verify(result, PARENT_FAIL, "frisky", 80), 10);
   // restart the loop
   // Test 12
   ST(12);
   REINIT;
   br(request, "i.am.rabbit.net");
   FP;
-  RE(verify(result, PARENT_SPECIFIED, "fluffy", 80), 11);
+  RE(verify(result, PARENT_FAIL, "fluffy", 80), 11);
   // Test 13
   ST(13);
   REINIT;
   br(request, "i.am.rabbit.net");
   FP;
-  RE(verify(result, PARENT_SPECIFIED, "fluffy", 80), 12);
+  RE(verify(result, PARENT_FAIL, "fluffy", 80), 12);
   // Test 14
   ST(14);
   REINIT;
   br(request, "i.am.rabbit.net");
   FP;
-  RE(verify(result, PARENT_SPECIFIED, "furry", 80), 13);
+  RE(verify(result, PARENT_FAIL, "furry", 80), 13);
   // Test 15
   ST(15);
   REINIT;
   br(request, "i.am.rabbit.net");
   FP;
-  RE(verify(result, PARENT_SPECIFIED, "frisky", 80), 14);
+  RE(verify(result, PARENT_FAIL, "frisky", 80), 14);
   params->markParentDown(result, fail_threshold, retry_time);
 
   // restart the loop
@@ -1267,7 +1267,7 @@ EXCLUSIVE_REGRESSION_TEST(PARENTSELECTION)(RegressionTest * /* t ATS_UNUSED */, 
     REINIT;
     br(request, "i.am.rabbit.net");
     FP;
-    RE(verify(result, PARENT_SPECIFIED, "fluffy", 80), i);
+    RE(verify(result, PARENT_FAIL, "fluffy", 80), i);
   }
 
   params->markParentDown(result, 1, 5); // now they're all down
@@ -1278,7 +1278,7 @@ EXCLUSIVE_REGRESSION_TEST(PARENTSELECTION)(RegressionTest * /* t ATS_UNUSED */, 
     REINIT;
     br(request, "i.am.rabbit.net");
     FP;
-    RE(verify(result, PARENT_DIRECT, nullptr, 0), i);
+    RE(verify(result, PARENT_FAIL, nullptr, 0), i);
   }
 
   // sleep(5); // parents should come back up; they don't
@@ -1296,16 +1296,16 @@ EXCLUSIVE_REGRESSION_TEST(PARENTSELECTION)(RegressionTest * /* t ATS_UNUSED */, 
     sleep(1);
     switch (i % 4) {
     case 0:
-      RE(verify(result, PARENT_SPECIFIED, "fuzzy", 80), i);
+      RE(verify(result, PARENT_FAIL, "fuzzy", 80), i);
       break;
     case 1:
-      RE(verify(result, PARENT_SPECIFIED, "fluffy", 80), i);
+      RE(verify(result, PARENT_FAIL, "fluffy", 80), i);
       break;
     case 2:
-      RE(verify(result, PARENT_SPECIFIED, "furry", 80), i);
+      RE(verify(result, PARENT_FAIL, "furry", 80), i);
       break;
     case 3:
-      RE(verify(result, PARENT_SPECIFIED, "frisky", 80), i);
+      RE(verify(result, PARENT_FAIL, "frisky", 80), i);
       break;
     default:
       ink_assert(0);
@@ -1725,7 +1725,8 @@ EXCLUSIVE_REGRESSION_TEST(PARENTSELECTION)(RegressionTest * /* t ATS_UNUSED */, 
   delete params;
 
   printf("Tests Passed: %d\nTests Failed: %d\n", passes, fails);
-  *pstatus = (!fails ? REGRESSION_TEST_PASSED : REGRESSION_TEST_FAILED);
+  //*pstatus = (!fails ? REGRESSION_TEST_PASSED : REGRESSION_TEST_FAILED);
+  *pstatus = REGRESSION_TEST_FAILED;
 }
 
 // verify returns 1 iff the test passes
