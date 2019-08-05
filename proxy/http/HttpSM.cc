@@ -75,8 +75,9 @@ extern TunnelHashMap TunnelMap; // stores the name of the servers to tunnel to
 DList(HttpSM, debug_link) debug_sm_list;
 ink_mutex debug_sm_list_mutex;
 
-static const int sub_header_size = sizeof("Content-type: ") - 1 + 2 + sizeof("Content-range: bytes ") - 1 + 4;
-static const int boundary_size   = 2 + sizeof("RANGE_SEPARATOR") - 1 + 2;
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Cause death here
+static const int sub_header_size = sizeof("Content-type: ") - 1 + 2 + sizeof("Content-range: bytes ") - 1 + 4
+static const int boundary_size   = 2 + sizeof("RANGE_SEPARATOR") - 1 + 2
 
 static const char *str_100_continue_response = "HTTP/1.1 100 Continue\r\n\r\n";
 static const int len_100_continue_response   = strlen(str_100_continue_response);
