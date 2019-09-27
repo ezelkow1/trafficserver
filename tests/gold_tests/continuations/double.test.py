@@ -62,6 +62,7 @@ tr.Processes.Default.StartBefore(
     server, ready=When.PortOpen(server.Variables.Port))
 # Adds a delay once the ts port is ready. This is because we cannot test the ts state.
 tr.Processes.Default.StartBefore(ts, ready=10)
+tr.DelayStart = 10
 ts.StartAfter(*ps)
 server.StartAfter(*ps)
 tr.StillRunningAfter = ts
