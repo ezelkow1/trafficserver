@@ -34,14 +34,15 @@ class Http2ConnectionState;
 
 typedef Http2DependencyTree::Tree<Http2Stream *> DependencyTree;
 
-class Http2Stream : public ProxyClientTransaction
+class Http2Stream : public ProxyTransaction
 {
 public:
-  typedef ProxyClientTransaction super; ///< Parent type.
-  Http2Stream(Http2StreamId sid = 0, ssize_t initial_rwnd = Http2::initial_window_size) : _id(sid), _client_rwnd(initial_rwnd)
-  {
-    SET_HANDLER(&Http2Stream::main_event_handler);
-  }
+  const int retry_delay = HRTIME_MSECONDS(10);
+  using super           = ProxyTransaction; ///< Parent type.
+
+  Http2Stream(Http2StreamId sid = 0, ssize_t initial_rwnd = Http2::initial_window_size);
+
+  void init(Http2StreamId sid, ssize_t initial_rwnd);
 
   void
   init(Http2StreamId sid, ssize_t initial_rwnd)
@@ -139,6 +140,9 @@ public:
   void do_io_shutdown(ShutdownHowTo_t) override {}
   void update_read_request(int64_t read_len, bool send_update, bool check_eos = false);
   void update_write_request(IOBufferReader *buf_reader, int64_t write_len, bool send_update);
+
+  void signal_read_event(int event);
+  void signal_write_event(int event);
   void signal_write_event(bool call_update);
   void reenable(VIO *vio) override;
   void transaction_done() override;
