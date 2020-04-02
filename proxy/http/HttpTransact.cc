@@ -84,6 +84,26 @@ is_localhost(const char *name, int len)
   return (len == (sizeof(local) - 1)) && (memcmp(name, local, len) == 0);
 }
 
+inline static bool
+is_response_simple_code(HTTPStatus response_code)
+{
+  if (static_cast<unsigned int>(response_code) < 400 || static_cast<unsigned int>(response_code) > 499) {
+    return false;
+  }
+
+  return true;
+}
+
+inline static bool
+is_response_unavailable_code(HTTPStatus response_code)
+{
+  if (static_cast<unsigned int>(response_code) < 500 || static_cast<unsigned int>(response_code) > 599) {
+    return false;
+  }
+
+  return true;
+}
+
 inline static void
 simple_or_unavailable_server_retry(HttpTransact::State *s)
 {
@@ -92,12 +112,11 @@ simple_or_unavailable_server_retry(HttpTransact::State *s)
 
   TxnDebug("http_trans", "[simple_or_unavailabe_server_retry] server_response = %d, simple_retry_attempts: %d, numParents:%d ",
            server_response, s->current.simple_retry_attempts, s->parent_params->numParents(&s->parent_result));
-
   // simple retry is enabled, 0x1
-  if ((s->parent_result.retry_type() & PARENT_RETRY_SIMPLE) &&
+  if ((s->parent_result.retry_type() & PARENT_RETRY_SIMPLE) && is_response_simple_code(server_response) &&
       s->current.simple_retry_attempts < s->parent_result.max_retries(PARENT_RETRY_SIMPLE) &&
-      server_response == HTTP_STATUS_NOT_FOUND) {
-    TxnDebug("http_trans", "RECEIVED A SIMPLE RETRY RESPONSE");
+      s->parent_result.response_is_retryable(server_response)) {
+    TxnDebug("parent_select", "RECEIVED A SIMPLE RETRY RESPONSE");
     if (s->current.simple_retry_attempts < s->parent_params->numParents(&s->parent_result)) {
       s->current.state      = HttpTransact::PARENT_RETRY;
       s->current.retry_type = PARENT_RETRY_SIMPLE;
@@ -108,7 +127,7 @@ simple_or_unavailable_server_retry(HttpTransact::State *s)
     }
   }
   // unavailable server retry is enabled 0x2
-  else if ((s->parent_result.retry_type() & PARENT_RETRY_UNAVAILABLE_SERVER) &&
+  else if ((s->parent_result.retry_type() & PARENT_RETRY_UNAVAILABLE_SERVER) && is_response_unavailable_code(server_response) &&
            s->current.unavailable_server_retry_attempts < s->parent_result.max_retries(PARENT_RETRY_UNAVAILABLE_SERVER) &&
            s->parent_result.response_is_retryable(server_response)) {
     TxnDebug("parent_select", "RECEIVED A PARENT_RETRY_UNAVAILABLE_SERVER RESPONSE");
