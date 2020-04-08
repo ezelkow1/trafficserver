@@ -4345,6 +4345,10 @@ HttpTransact::handle_cache_operation_on_forward_server_response(State *s)
        negative_revalidating_lifetime. (negative revalidating)
      */
 
+    TxnDebug("http_trans",
+             "neg reval check: server_resp: %d, action: %d, neg_reval: %d, is_stale_returnable: ", server_response_code,
+             s->cache_info.action, s->txn_conf->negative_revalidating_enabled);
+
     if ((server_response_code == HTTP_STATUS_INTERNAL_SERVER_ERROR || server_response_code == HTTP_STATUS_GATEWAY_TIMEOUT ||
          server_response_code == HTTP_STATUS_BAD_GATEWAY || server_response_code == HTTP_STATUS_SERVICE_UNAVAILABLE) &&
         s->cache_info.action == CACHE_DO_UPDATE && s->txn_conf->negative_revalidating_enabled &&
@@ -4356,6 +4360,8 @@ HttpTransact::handle_cache_operation_on_forward_server_response(State *s)
       s->cache_info.object_store.response_set(s->cache_info.object_read->response_get());
       base_response   = s->cache_info.object_store.response_get();
       time_t exp_time = s->txn_conf->negative_revalidating_lifetime + ink_local_time();
+      TxnDebug("http_Trans", "[hcoofsr] negative reval, lifetime: %ld, curtime: %ld, exp: %ld",
+               s->txn_conf->negative_revalidating_lifetime, ink_local_time(), exp_time);
       base_response->set_expires(exp_time);
 
       SET_VIA_STRING(VIA_CACHE_FILL_ACTION, VIA_CACHE_UPDATED);
@@ -5944,6 +5950,16 @@ HttpTransact::is_stale_cache_response_returnable(State *s)
   if (auth_needed != AUTHENTICATION_SUCCESS) {
     TxnDebug("http_trans", "[is_stale_cache_response_returnable] "
                            "authorization prevent serving stale");
+    return false;
+  }
+
+  //////////////////////// We need a test here for negative reval
+  TxnDebug("http_trans", "!!!!!!!!!!!!!!!!!!! is stale cache response returnable? currentage: %ld, negreval: %d, neglifetime: %ld",
+           current_age, s->txn_conf->negative_revalidating_enabled, s->txn_conf->negative_revalidating_lifetime);
+
+  // If we have negative reval enabled and its current age is beyond our reval lifetime, do not serve stale
+  if (s->txn_conf->negative_revalidating_enabled && (current_age > s->txn_conf->negative_revalidating_lifetime)) {
+    TxnDebug("http_trans", "negative reval check failed, current_age > negative revalidating lifetime");
     return false;
   }
 
