@@ -76,6 +76,7 @@ struct Span {
   unsigned alignment      = 0;
   span_diskid_t disk_id;
   int forced_volume_num = -1; ///< Force span in to specific volume.
+  bool use_ram_cache    = 1;  // default to enabling ram cache for this span
 private:
   bool is_mmapable_internal = false;
 
@@ -156,6 +157,8 @@ public:
   void hash_base_string_set(const char *s);
   /// Set the volume number.
   void volume_number_set(int n);
+  /// Set ram cache enable.
+  void ram_cache_set(int n);
 
   Span() { disk_id[0] = disk_id[1] = 0; }
 
@@ -267,6 +270,7 @@ struct Store {
   /// Additional configuration key values.
   static const char VOLUME_KEY[];
   static const char HASH_BASE_STRING_KEY[];
+  static const char RAM_CACHE_KEY[];
 };
 
 // store either free or in the cache, can be stolen for reconfiguration

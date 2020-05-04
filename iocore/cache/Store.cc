@@ -39,6 +39,7 @@
 //
 const char Store::VOLUME_KEY[]           = "volume";
 const char Store::HASH_BASE_STRING_KEY[] = "id";
+const char Store::RAM_CACHE_KEY[]        = "ram_cache";
 
 static span_error_t
 make_span_error(int error)
@@ -250,6 +251,12 @@ Span::volume_number_set(int n)
 }
 
 void
+Span::ram_cache_set(int n)
+{
+  use_ram_cache = (bool)n;
+}
+
+void
 Store::delete_all()
 {
   for (unsigned i = 0; i < n_disks; i++) {
@@ -364,8 +371,9 @@ Store::read_config()
     Debug("cache_init", "Store::read_config: \"%s\"", path);
     ++n_disks_in_config;
 
-    int64_t size   = -1;
-    int volume_num = -1;
+    int64_t size      = -1;
+    int volume_num    = -1;
+    int use_ram_cache = 1;
     const char *e;
     while (nullptr != (e = tokens.getNext())) {
       if (ParseRules::is_digit(*e)) {
@@ -393,6 +401,18 @@ Store::read_config()
           Error("%s failed to load", ts::filename::STORAGE);
           return Result::failure("failed to parse volume number '%s'", e);
         }
+      } else if (0 == strncasecmp(RAM_CACHE_KEY, e, sizeof(RAM_CACHE_KEY) - 1)) {
+        e += sizeof(RAM_CACHE_KEY) - 1;
+        if ('=' == *e) {
+          ++e;
+        }
+        if (!*e || !ParseRules::is_digit(*e) || (ink_atoi(e) < 0 || ink_atoi(e) > 1)) {
+          delete sd;
+          Error("%s failed to load", ts::filename::STORAGE);
+          return Result::failure("failed to parse ram cache enable '%s'", e);
+        } else {
+          use_ram_cache = ink_atoi(e);
+        }
       }
     }
 
@@ -417,6 +437,8 @@ Store::read_config()
     if (volume_num > 0) {
       ns->volume_number_set(volume_num);
     }
+
+    ns->ram_cache_set(use_ram_cache);
 
     // new Span
     {
