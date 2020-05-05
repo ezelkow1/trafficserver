@@ -251,9 +251,9 @@ Span::volume_number_set(int n)
 }
 
 void
-Span::ram_cache_set(int n)
+Span::ram_cache_set(bool n)
 {
-  use_ram_cache = (bool)n;
+  use_ram_cache = n;
 }
 
 void
@@ -371,9 +371,9 @@ Store::read_config()
     Debug("cache_init", "Store::read_config: \"%s\"", path);
     ++n_disks_in_config;
 
-    int64_t size      = -1;
-    int volume_num    = -1;
-    int use_ram_cache = 1;
+    int64_t size       = -1;
+    int volume_num     = -1;
+    bool use_ram_cache = true;
     const char *e;
     while (nullptr != (e = tokens.getNext())) {
       if (ParseRules::is_digit(*e)) {
@@ -411,7 +411,9 @@ Store::read_config()
           Error("%s failed to load", ts::filename::STORAGE);
           return Result::failure("failed to parse ram cache enable '%s'", e);
         } else {
-          use_ram_cache = ink_atoi(e);
+          if (!ink_atoi(e)) {
+            use_ram_cache = false;
+          }
         }
       }
     }

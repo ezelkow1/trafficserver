@@ -75,8 +75,8 @@ struct Span {
   unsigned hw_sector_size = DEFAULT_HW_SECTOR_SIZE;
   unsigned alignment      = 0;
   span_diskid_t disk_id;
-  int forced_volume_num = -1; ///< Force span in to specific volume.
-  bool use_ram_cache    = 1;  // default to enabling ram cache for this span
+  int forced_volume_num = -1;   ///< Force span in to specific volume.
+  bool use_ram_cache    = true; // default to enabling ram cache for this span
 private:
   bool is_mmapable_internal = false;
 
@@ -158,7 +158,7 @@ public:
   /// Set the volume number.
   void volume_number_set(int n);
   /// Set ram cache enable.
-  void ram_cache_set(int n);
+  void ram_cache_set(bool n);
 
   Span() { disk_id[0] = disk_id[1] = 0; }
 
