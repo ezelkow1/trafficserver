@@ -67,6 +67,11 @@ include experimental/header_normalize/Makefile.inc
 include experimental/hipes/Makefile.inc
 include experimental/hook-trace/Makefile.inc
 include experimental/inliner/Makefile.inc
+
+if BUILD_MAXMIND_ACL_PLUGIN
+include experimental/maxmind_acl/Makefile.inc
+endif
+
 include experimental/memcache/Makefile.inc
 include experimental/metalink/Makefile.inc
 include experimental/money_trace/Makefile.inc
