@@ -3839,11 +3839,9 @@ MIMEHdrImpl::recompute_cooked_stuff(MIMEField *changing_field_or_null)
   //////////////////////////////////////////////////
   // (1) cook the Cache-Control header if present //
   //////////////////////////////////////////////////
-
   // to be safe, recompute unless you know this call is for other cooked field
   if ((changing_field_or_null == nullptr) || (changing_field_or_null->m_wks_idx != MIME_WKSIDX_PRAGMA)) {
     field = mime_hdr_field_find(this, MIME_FIELD_CACHE_CONTROL, MIME_LEN_CACHE_CONTROL);
-
     if (field) {
       // try pathpaths first -- unlike most other fastpaths, this one
       // is probably more useful for polygraph than for the real world
@@ -3867,16 +3865,39 @@ MIMEHdrImpl::recompute_cooked_stuff(MIMEField *changing_field_or_null)
             ;
           }
           tlen = c - s;
-
           // If >= 0 then this is a well known token
           if (hdrtoken_tokenize(s, tlen, &token_wks) >= 0) {
 #if TRACK_COOKING
             Debug("http", "recompute_cooked_stuff: got field '%s'", token_wks);
 #endif
-
             HdrTokenHeapPrefix *p = hdrtoken_wks_to_prefix(token_wks);
             mask                  = p->wks_type_specific.u.cache_control.cc_mask;
-            m_cooked_stuff.m_cache_control.m_mask |= mask;
+            if (token_wks == MIME_VALUE_NO_CACHE && (len != tlen)) {
+              char *opts = strdup(s);
+              opts       = opts + tlen;
+              int optlen = len - tlen;
+              if ((const char)*opts == '=') {
+                opts++;
+                optlen--;
+              }
+              if ((const char)*opts == '"') {
+                opts++;
+                optlen--;
+              }
+              Debug("evan", "saw no-cache and more data, s: %s, strlen: %ld, l: %d", opts, strlen(opts), optlen);
+              // remove trailing quote
+              opts[strlen(opts) - 1] = 0;
+              char *token            = strtok(opts, ",");
+              while (token != NULL) {
+                Debug("evan", "token: %s", token);
+                MIMEField *tokfield = mime_hdr_field_find(this, token, strlen(token));
+                mime_hdr_field_delete(NULL, this, tokfield, true);
+                token = strtok(NULL, ",");
+              }
+
+            } else {
+              m_cooked_stuff.m_cache_control.m_mask |= mask;
+            }
 
 #if TRACK_COOKING
             Debug("http", "                        set mask 0x%0X", mask);
@@ -3923,7 +3944,13 @@ MIMEHdrImpl::recompute_cooked_stuff(MIMEField *changing_field_or_null)
       if (!field->has_dups()) { // try fastpath first
         s = field->value_get(&len);
         if (ptr_len_casecmp(s, len, "no-cache", 8) == 0) {
-          m_cooked_stuff.m_pragma.m_no_cache = true;
+          if (ptr_len_casecmp(s + len, 1, "=", 1) == 0) {
+            // We have a qualified no-cache based on a header, remove those headers
+            Debug("evan", "saw no-cache with an equals, not setting no-cache");
+          } else {
+            Debug("evan", "did not see no-cache with equals, setting no-cache");
+            m_cooked_stuff.m_pragma.m_no_cache = true;
+          }
           return;
         }
       }
@@ -3940,6 +3967,7 @@ MIMEHdrImpl::recompute_cooked_stuff(MIMEField *changing_field_or_null)
 
           if (hdrtoken_tokenize(s, tlen, &token_wks) >= 0) {
             if (token_wks == MIME_VALUE_NO_CACHE) {
+              Debug("evan", "hdrtokenize setting no-cache=true");
               m_cooked_stuff.m_pragma.m_no_cache = true;
             }
           }
