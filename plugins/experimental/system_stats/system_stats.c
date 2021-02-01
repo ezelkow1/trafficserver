@@ -44,7 +44,7 @@
 #define DEBUG_TAG PLUGIN_NAME
 
 // Time in MS to grab the system stats
-#define SYSTEM_STATS_TIMEOUT 5000
+#define SYSTEM_STATS_TIMEOUT 1000
 
 // Load Average Strings
 #define LOAD_AVG_ONE_MIN "plugin." PLUGIN_NAME ".loadavg.one"
@@ -108,7 +108,7 @@ getFile(const char *filename, char *buffer, int bufferSize)
 }
 
 static void
-statSet(const char *name, int value, TSMutex stat_creation_mutex)
+statSet(const char *name, long value, TSMutex stat_creation_mutex)
 {
   int stat_id = statAdd(name, TS_RECORDDATATYPE_INT, stat_creation_mutex);
   if (stat_id != TS_ERROR) {
@@ -145,7 +145,7 @@ setNetStat(TSMutex stat_creation_mutex, const char *interface, const char *entry
   if (getFile(&sysfs_name[0], &data[0], sizeof(data)) < 0) {
     TSDebug(DEBUG_TAG, "Error reading file %s", sysfs_name);
   } else {
-    statSet(stat_name, atoi(data), stat_creation_mutex);
+    statSet(stat_name, atol(data), stat_creation_mutex);
   }
 }
 
