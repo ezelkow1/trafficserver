@@ -48,6 +48,10 @@ sessions:
         fields:
         - [ Host, example.com ]
 
+      # Add a delay so ATS has time to finish caching
+      # This is fixed on 9.1/master but full backport is large for 9.0.x
+      delay: 1s
+
     server-response:
       status: 404
       reason: "Not Found"
