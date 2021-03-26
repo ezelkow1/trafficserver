@@ -27,9 +27,7 @@
  *
  *
  ****************************************************************************/
-
 #include <sys/types.h>
-
 #include "tscore/ink_config.h"
 #include "tscore/Filenames.h"
 #include "CacheControl.h"
