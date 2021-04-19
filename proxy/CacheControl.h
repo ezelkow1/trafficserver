@@ -29,7 +29,6 @@
  ****************************************************************************/
 
 #pragma once
-
 #include "P_EventSystem.h"
 #include "ControlBase.h"
 #include "tscore/Result.h"
