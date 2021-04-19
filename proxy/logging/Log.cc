@@ -452,6 +452,11 @@ Log::init_fields()
   global_field_list.add(field, false);
   field_symbol_hash.emplace("cqpv", field);
 
+  field = new LogField("server_req_protocol_version", "sqpv", LogField::dINT, &LogAccess::marshal_server_req_protocol_version,
+                       reinterpret_cast<LogField::UnmarshalFunc>(&LogAccess::unmarshal_str));
+  global_field_list.add(field, false);
+  field_symbol_hash.emplace("sqpv", field);
+
   field = new LogField("client_req_header_len", "cqhl", LogField::sINT, &LogAccess::marshal_client_req_header_len,
                        &LogAccess::unmarshal_int_to_str);
   global_field_list.add(field, false);
@@ -613,7 +618,7 @@ Log::init_fields()
 
   Ptr<LogFieldAliasTable> cache_code_map = make_ptr(new LogFieldAliasTable);
   cache_code_map->init(
-    52, SQUID_LOG_EMPTY, "UNDEFINED", SQUID_LOG_TCP_HIT, "TCP_HIT", SQUID_LOG_TCP_DISK_HIT, "TCP_DISK_HIT", SQUID_LOG_TCP_MEM_HIT,
+    53, SQUID_LOG_EMPTY, "UNDEFINED", SQUID_LOG_TCP_HIT, "TCP_HIT", SQUID_LOG_TCP_DISK_HIT, "TCP_DISK_HIT", SQUID_LOG_TCP_MEM_HIT,
     "TCP_MEM_HIT", SQUID_LOG_TCP_MISS, "TCP_MISS", SQUID_LOG_TCP_EXPIRED_MISS, "TCP_EXPIRED_MISS", SQUID_LOG_TCP_REFRESH_HIT,
     "TCP_REFRESH_HIT", SQUID_LOG_TCP_REF_FAIL_HIT, "TCP_REFRESH_FAIL_HIT", SQUID_LOG_TCP_REFRESH_MISS, "TCP_REFRESH_MISS",
     SQUID_LOG_TCP_CLIENT_REFRESH, "TCP_CLIENT_REFRESH_MISS", SQUID_LOG_TCP_IMS_HIT, "TCP_IMS_HIT", SQUID_LOG_TCP_IMS_MISS,
@@ -632,7 +637,7 @@ Log::init_fields()
     "ERR_CANNOT_FETCH", SQUID_LOG_ERR_NO_RELAY, "ERR_NO_RELAY", SQUID_LOG_ERR_DISK_IO, "ERR_DISK_IO",
     SQUID_LOG_ERR_ZERO_SIZE_OBJECT, "ERR_ZERO_SIZE_OBJECT", SQUID_LOG_ERR_PROXY_DENIED, "ERR_PROXY_DENIED",
     SQUID_LOG_ERR_WEBFETCH_DETECTED, "ERR_WEBFETCH_DETECTED", SQUID_LOG_ERR_FUTURE_1, "ERR_FUTURE_1", SQUID_LOG_ERR_LOOP_DETECTED,
-    "ERR_LOOP_DETECTED", SQUID_LOG_ERR_UNKNOWN, "ERR_UNKNOWN");
+    "ERR_LOOP_DETECTED", SQUID_LOG_ERR_UNKNOWN, "ERR_UNKNOWN", SQUID_LOG_TCP_CF_HIT, "TCP_CF_HIT");
 
   Ptr<LogFieldAliasTable> cache_subcode_map = make_ptr(new LogFieldAliasTable);
   cache_subcode_map->init(2, SQUID_SUBCODE_EMPTY, "NONE", SQUID_SUBCODE_NUM_REDIRECTIONS_EXCEEDED, "NUM_REDIRECTIONS_EXCEEDED");
@@ -643,7 +648,7 @@ Log::init_fields()
                            SQUID_HIT_LEVEL_3, "HIT_DISK",                               // Also SQUID_HIT_DISK
                            SQUID_HIT_LEVEL_4, "HIT_CLUSTER",                            // Also SQUID_HIT_CLUSTER
                            SQUID_HIT_LEVEL_5, "HIT_NET",                                // Also SQUID_HIT_NET
-                           SQUID_HIT_LEVEL_6, "HIT_LEVEL_6", SQUID_HIT_LEVEL_7, "HIT_LEVEL_7", SQUID_HIT_LEVEL_8, "HIT_LEVEL_8",
+                           SQUID_HIT_LEVEL_6, "HIT_RWW", SQUID_HIT_LEVEL_7, "HIT_LEVEL_7", SQUID_HIT_LEVEL_8, "HIT_LEVEL_8",
                            SQUID_HIT_LEVEl_9, "HIT_LEVEL_9", SQUID_MISS_NONE, "MISS", SQUID_MISS_HTTP_NON_CACHE,
                            "MISS_HTTP_NON_CACHE", SQUID_MISS_HTTP_NO_DLE, "MISS_HTTP_NO_DLE", SQUID_MISS_HTTP_NO_LE,
                            "MISS_HTTP_NO_LE", SQUID_MISS_HTTP_CONTENT, "MISS_HTTP_CONTENT", SQUID_MISS_PRAGMA_NOCACHE,
