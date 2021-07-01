@@ -21,6 +21,8 @@
 # Ignore any other files further up in the file system
 root = true
 
+
+
 # Defaults
 [*]
 end_of_line = lf
