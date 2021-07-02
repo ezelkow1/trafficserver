@@ -18,7 +18,7 @@
 TSSslSecretSet
 **************
 
-Set the data associated with a secret name specified in the config.
+Set the data associated with a secret name specified in the config. Safe change.
 
 Synopsis
 ========
