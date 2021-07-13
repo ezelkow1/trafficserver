@@ -79,12 +79,9 @@ Acl::init(char const *filename)
   TSMgmtStringGet(var_name, &result);
   TSMgmtConfigFileAdd(result, configloc.c_str());
 
-  // Find our database name and convert to full path as needed
-  status = loaddb(maxmind["database"]);
-
-  if (!status) {
-    TSDebug(PLUGIN_NAME, "Failed to load MaxMind Database");
-    return status;
+  if (reloaddb() == false) {
+    TSDebug(PLUGIN_NAME, "Failed to reload the maxmind database");
+    return false;
   }
 
   // Clear out existing data, these may no longer exist in a new config and so we
@@ -401,17 +398,47 @@ Acl::loaddb(const YAML::Node &dbNode)
   return true;
 }
 
+//////////////////////////////////////////////////////////////////////////////////
+// Internal helper to reload the maxmind database
+bool
+Acl::reloaddb()
+{
+  YAML::Node maxmind;
+
+  // Reload the databse from our config location
+  maxmind = _config["maxmind"];
+  return loaddb(maxmind["database"]);
+}
+
 bool
 Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
 {
   bool ret = default_allow;
+  bool err = false;
   int mmdb_error;
   MMDB_lookup_result_s result = MMDB_lookup_sockaddr(&_mmdb, TSHttpTxnClientAddrGet(txnp), &mmdb_error);
 
   if (MMDB_SUCCESS != mmdb_error) {
     TSDebug(PLUGIN_NAME, "Error during sockaddr lookup: %s", MMDB_strerror(mmdb_error));
-    ret = false;
-    return ret;
+    err = true;
+  }
+
+  // We hit an error on sock lookup, this could be due to an overwritten database so attempt to reload
+  // and retry the lookup
+  if (err == true) {
+    ret = default_allow;
+
+    if (reloaddb() == false) {
+      TSDebug(PLUGIN_NAME, "Failed to reload the maxmind database");
+      return false;
+    }
+
+    result = MMDB_lookup_sockaddr(&_mmdb, TSHttpTxnClientAddrGet(txnp), &mmdb_error);
+    if (MMDB_SUCCESS != mmdb_error) {
+      TSDebug(PLUGIN_NAME, "Error during sockaddr lookup: %s after db reload", MMDB_strerror(mmdb_error));
+      ret = false;
+      return ret;
+    }
   }
 
   MMDB_entry_data_list_s *entry_data_list = nullptr;
@@ -419,10 +446,23 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
     int status = MMDB_get_entry_data_list(&result.entry, &entry_data_list);
     if (MMDB_SUCCESS != status) {
       TSDebug(PLUGIN_NAME, "Error looking up entry data: %s", MMDB_strerror(status));
-      ret = false;
-      return ret;
+      err = true;
     }
+    if (err == true) {
+      ret = default_allow;
 
+      if (reloaddb() == false) {
+        TSDebug(PLUGIN_NAME, "Failed to reload the maxmind database");
+        return false;
+      }
+
+      int mmdbstatus = MMDB_get_entry_data_list(&result.entry, &entry_data_list);
+      if (MMDB_SUCCESS != mmdbstatus) {
+        TSDebug(PLUGIN_NAME, "Error looking up entry data: %s after db reload", MMDB_strerror(mmdbstatus));
+        ret = false;
+        return ret;
+      }
+    }
     if (nullptr != entry_data_list) {
       // This is useful to be able to dump out a full record of a
       // mmdb entry for debug. Enabling can help if you want to figure
