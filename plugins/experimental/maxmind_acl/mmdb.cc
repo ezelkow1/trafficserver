@@ -404,10 +404,17 @@ bool
 Acl::reloaddb()
 {
   YAML::Node maxmind;
+  reload_waiting = true;
+  bool status    = false;
+  {
+    std::lock_guard lock(reload_mutex);
+    // Reload the databse from our config location
+    maxmind = _config["maxmind"];
+    status  = loaddb(maxmind["database"]);
+  }
 
-  // Reload the databse from our config location
-  maxmind = _config["maxmind"];
-  return loaddb(maxmind["database"]);
+  reload_waiting = false;
+  return status;
 }
 
 bool
@@ -416,7 +423,14 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
   bool ret = default_allow;
   bool err = false;
   int mmdb_error;
+
+  while (reload_waiting) {
+    std::this_thread::yield();
+  }
+
+  std::shared_lock lock(reload_mutex);
   MMDB_lookup_result_s result = MMDB_lookup_sockaddr(&_mmdb, TSHttpTxnClientAddrGet(txnp), &mmdb_error);
+  std::shared_lock unlock(reload_mutex);
 
   if (MMDB_SUCCESS != mmdb_error) {
     TSDebug(PLUGIN_NAME, "Error during sockaddr lookup: %s", MMDB_strerror(mmdb_error));
@@ -433,7 +447,9 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
       return false;
     }
 
+    std::shared_lock lock(reload_mutex);
     result = MMDB_lookup_sockaddr(&_mmdb, TSHttpTxnClientAddrGet(txnp), &mmdb_error);
+    std::shared_lock unlock(reload_mutex);
     if (MMDB_SUCCESS != mmdb_error) {
       TSDebug(PLUGIN_NAME, "Error during sockaddr lookup: %s after db reload", MMDB_strerror(mmdb_error));
       ret = false;
@@ -443,7 +459,9 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
 
   MMDB_entry_data_list_s *entry_data_list = nullptr;
   if (result.found_entry) {
+    std::shared_lock lock(reload_mutex);
     int status = MMDB_get_entry_data_list(&result.entry, &entry_data_list);
+    std::shared_lock unlock(reload_mutex);
     if (MMDB_SUCCESS != status) {
       TSDebug(PLUGIN_NAME, "Error looking up entry data: %s", MMDB_strerror(status));
       err = true;
@@ -456,7 +474,9 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
         return false;
       }
 
+      std::shared_lock lock(reload_mutex);
       int mmdbstatus = MMDB_get_entry_data_list(&result.entry, &entry_data_list);
+      std::shared_lock unlock(reload_mutex);
       if (MMDB_SUCCESS != mmdbstatus) {
         TSDebug(PLUGIN_NAME, "Error looking up entry data: %s after db reload", MMDB_strerror(mmdbstatus));
         ret = false;
@@ -484,7 +504,9 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
       }
       // Test for country code
       if (!allow_country.empty() || !allow_regex.empty() || !deny_regex.empty()) {
+        std::shared_lock lock(reload_mutex);
         status = MMDB_get_value(&result.entry, &entry_data, "country", "iso_code", NULL);
+        std::shared_lock unlock(reload_mutex);
         if (MMDB_SUCCESS != status) {
           TSDebug(PLUGIN_NAME, "err on get country code value: %s", MMDB_strerror(status));
           return false;

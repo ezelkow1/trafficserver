@@ -36,6 +36,10 @@
 #include <unistd.h>
 #include <iterator>
 #include <maxminddb.h>
+#include <mutex>
+#include <shared_mutex>
+#include <thread>
+#include <atomic>
 #include "tscore/IpMap.h"
 
 #ifdef HAVE_PCRE_PCRE_H
@@ -98,6 +102,10 @@ protected:
   // for deny only rules
   bool default_allow = false;
   bool db_loaded     = false;
+
+  // Protection for when we must auto-reload the database
+  std::shared_mutex reload_mutex;
+  std::atomic_bool reload_waiting = false;
 
   bool loaddb(const YAML::Node &dbNode);
   bool loadallow(const YAML::Node &allowNode);
