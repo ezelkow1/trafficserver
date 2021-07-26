@@ -399,7 +399,15 @@ Acl::eval(TSRemapRequestInfo *rri, TSHttpTxn txnp)
 {
   bool ret = default_allow;
   int mmdb_error;
-  MMDB_lookup_result_s result = MMDB_lookup_sockaddr(&_mmdb, TSHttpTxnClientAddrGet(txnp), &mmdb_error);
+  auto sockaddr = TSHttpTxnClientAddrGet(txnp);
+
+  if (sockaddr == nullptr) {
+    TSDebug(PLUGIN_NAME, "Err during TsHttpClientAddrGet, nullptr returned");
+    ret = false;
+    return ret;
+  }
+
+  MMDB_lookup_result_s result = MMDB_lookup_sockaddr(&_mmdb, sockaddr, &mmdb_error);
 
   if (MMDB_SUCCESS != mmdb_error) {
     TSDebug(PLUGIN_NAME, "Error during sockaddr lookup: %s", MMDB_strerror(mmdb_error));
