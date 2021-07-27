@@ -501,7 +501,7 @@ Acl::eval_country(MMDB_entry_data_s *entry_data, const char *path, int path_len)
   char *output = NULL;
 
   // Add one for null termination
-  output = (char *)malloc((sizeof(char) * entry_data->data_size + 1));
+  output = (char *)malloc((sizeof(char) * (entry_data->data_size + 1)));
   strncpy(output, entry_data->utf8_string, entry_data->data_size);
   output[entry_data->data_size] = '\0';
   TSDebug(PLUGIN_NAME, "This IP Country Code: %s", output);
