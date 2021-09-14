@@ -43,7 +43,7 @@ sessions:
       status: 200
       headers:
         fields:
-        - [ Transfer-Encoding, { as: absent } ]
+        - [ Transfer-Encoding, { as: present } ]
       content:
         size: 32
 
