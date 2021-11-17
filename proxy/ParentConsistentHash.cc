@@ -245,6 +245,8 @@ ParentConsistentHash::selectParent(bool first_call, ParentResult *result, Reques
             Debug("parent_select", "Down parent %s is now retryable, retriers = %d, max_retriers = %d", pRec->hostname,
                   pRec->retriers(), max_retriers);
             break;
+          } else {
+            pRec->retriers.dec();
           }
         }
       }

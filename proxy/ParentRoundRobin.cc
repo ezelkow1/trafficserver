@@ -166,6 +166,8 @@ ParentRoundRobin::selectParent(bool first_call, ParentResult *result, RequestDat
           parentUp    = true;
           parentRetry = true;
           Debug("parent_select", "Parent marked for retry %s:%d", parents[cur_index].hostname, parents[cur_index].port);
+        } else {
+          parents[cur_index].retriers.dec();
         }
       } else {
         parentUp = false;

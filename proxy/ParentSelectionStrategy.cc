@@ -65,6 +65,8 @@ ParentSelectionStrategy::markParentDown(ParentResult *result, unsigned int fail_
     //   must set the count to reflect this
     if (result->retry == false) {
       new_fail_count = pRec->failCount = 1;
+    } else {
+      pRec->retriers.dec();
     }
 
     Note("Parent %s marked as down %s:%d", (result->retry) ? "retry" : "initially", pRec->hostname, pRec->port);
