@@ -193,7 +193,7 @@ CacheHostTable::CacheHostTable(Cache *c, CacheType typ)
 
   config_path = RecConfigReadConfigPath("proxy.config.cache.hosting_filename");
   ink_release_assert(config_path);
-
+  Debug("cache_hosting", "Creating new cachehosttable entry");
   m_numEntries = this->BuildTable(config_path);
 }
 
@@ -233,6 +233,7 @@ CacheHostTable::config_callback(const char * /* name ATS_UNUSED */, RecDataT /* 
                                 RecData /* data ATS_UNUSED */, void *cookie)
 {
   CacheHostTable **ppt = static_cast<CacheHostTable **>(cookie);
+  Debug("cache_hosting", "Inside hosting config_callback, schedule new hosttableconfig");
   eventProcessor.schedule_imm(new CacheHostTableConfig(ppt));
   return 0;
 }
@@ -248,7 +249,7 @@ int
 CacheHostTable::BuildTableFromString(const char *config_file_path, char *file_buf)
 {
   Note("%s loading ...", ts::filename::HOSTING);
-
+  Debug("cache_hosting", "In buildtablefromstring");
   // Table build locals
   Tokenizer bufTok("\n");
   tok_iter_state i_state;
