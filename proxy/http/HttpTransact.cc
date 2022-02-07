@@ -214,6 +214,18 @@ markParentDown(HttpTransact::State *s)
   HTTP_INCREMENT_DYN_STAT(http_total_parent_marked_down_count);
   url_mapping *mp = s->url_map.getMapping();
 
+  TxnDebug("http_trans", "sm_id[%" PRId64 "] enable_parent_timeout_markdowns: %d, disable_parent_markdowns: %d",
+           s->state_machine->sm_id, s->txn_conf->enable_parent_timeout_markdowns, s->txn_conf->disable_parent_markdowns);
+
+  if (s->txn_conf->disable_parent_markdowns == 1) {
+    TxnDebug("http_trans", "parent markdowns are disabled for this request");
+    return;
+  }
+
+  if (s->current.state == HttpTransact::INACTIVE_TIMEOUT && s->txn_conf->enable_parent_timeout_markdowns == 0) {
+    return;
+  }
+
   if (s->response_action.handled) {
     // Do nothing. If a plugin handled the response, let it handle markdown.
   } else if (mp && mp->strategy) {
@@ -283,17 +295,6 @@ nextParent(HttpTransact::State *s)
   } else if (s->parent_params) {
     s->parent_params->nextParent(&s->request_data, &s->parent_result, s->txn_conf->parent_fail_threshold,
                                  s->txn_conf->parent_retry_time);
-  }
-}
-
-inline static void
-retryComplete(HttpTransact::State *s)
-{
-  url_mapping *mp = s->url_map.getMapping();
-  if (mp && mp->strategy) {
-    mp->strategy->retryComplete(reinterpret_cast<TSHttpTxn>(s->state_machine), s->parent_result.hostname, s->parent_result.port);
-  } else if (s->parent_params) {
-    s->parent_params->retryComplete(&s->parent_result);
   }
 }
 
@@ -1953,6 +1954,13 @@ HttpTransact::OSDNSLookup(State *s)
     } else {
       TxnDebug("http_seq", "[HttpTransact::OSDNSLookup] DNS Lookup unsuccessful");
 
+      // Even with unsuccessful DNS lookup, return stale object from cache if applicable
+      if (is_cache_hit(s->cache_lookup_result) && is_stale_cache_response_returnable(s)) {
+        s->source = SOURCE_CACHE;
+        TxnDebug("http_trans", "[hscno] serving stale doc to client");
+        build_response_from_cache(s, HTTP_WARNING_CODE_REVALIDATION_FAILED);
+        return;
+      }
       // output the DNS failure error message
       SET_VIA_STRING(VIA_DETAIL_TUNNEL, VIA_DETAIL_TUNNEL_NO_FORWARD);
       // Set to internal server error so later logging will pick up SQUID_LOG_ERR_DNS_FAIL
@@ -2653,16 +2661,7 @@ HttpTransact::HandleCacheOpenReadHitFreshness(State *s)
     SET_VIA_STRING(VIA_CACHE_RESULT, VIA_IN_CACHE_STALE);
   }
 
-  if (!s->force_dns) { // If DNS is not performed before
-    if (need_to_revalidate(s)) {
-      TRANSACT_RETURN(SM_ACTION_API_CACHE_LOOKUP_COMPLETE,
-                      CallOSDNSLookup); // content needs to be revalidated and we did not perform a dns ....calling DNS lookup
-    } else {                            // document can be served can cache
-      TRANSACT_RETURN(SM_ACTION_API_CACHE_LOOKUP_COMPLETE, HttpTransact::HandleCacheOpenReadHit);
-    }
-  } else { // we have done dns . Its up to HandleCacheOpenReadHit to decide to go OS or serve from cache
-    TRANSACT_RETURN(SM_ACTION_API_CACHE_LOOKUP_COMPLETE, HttpTransact::HandleCacheOpenReadHit);
-  }
+  TRANSACT_RETURN(SM_ACTION_API_CACHE_LOOKUP_COMPLETE, HttpTransact::HandleCacheOpenReadHit);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -3637,7 +3636,7 @@ HttpTransact::handle_response_from_parent(State *s)
   // if this parent was retried from a markdown, then
   // notify that the retry has completed.
   if (s->parent_result.retry) {
-    retryComplete(s);
+    markParentUp(s);
   }
 
   simple_or_unavailable_server_retry(s);
@@ -3653,9 +3652,16 @@ HttpTransact::handle_response_from_parent(State *s)
     }
     // the next hop strategy is configured not
     // to cache a response from a next hop peer.
-    if (s->parent_result.do_not_cache_response) {
-      TxnDebug("http_trans", "response is from a next hop peer, do not cache.");
-      s->cache_info.action = CACHE_DO_NO_ACTION;
+    if (s->response_action.handled) {
+      if (s->response_action.action.no_cache) {
+        TxnDebug("http_trans", "plugin set response_action.no_cache, do not cache.");
+        s->cache_info.action = CACHE_DO_NO_ACTION;
+      }
+    } else {
+      if (s->parent_result.do_not_cache_response) {
+        TxnDebug("http_trans", "response is from a next hop peer, do not cache.");
+        s->cache_info.action = CACHE_DO_NO_ACTION;
+      }
     }
     handle_forward_server_connection_open(s);
     break;
@@ -3715,7 +3721,7 @@ HttpTransact::handle_response_from_parent(State *s)
         // Only mark the parent down if we failed to connect
         //  to the parent otherwise slow origin servers cause
         //  us to mark the parent down
-        if (s->current.state == CONNECTION_ERROR) {
+        if (s->current.state == CONNECTION_ERROR || s->current.state == INACTIVE_TIMEOUT) {
           markParentDown(s);
         }
         // We are done so look for another parent if any
@@ -3726,7 +3732,7 @@ HttpTransact::handle_response_from_parent(State *s)
       //   appropriate
       HTTP_INCREMENT_DYN_STAT(http_total_parent_retries_exhausted_stat);
       TxnDebug("http_trans", "[handle_response_from_parent] Error. No more retries.");
-      if (s->current.state == CONNECTION_ERROR) {
+      if (s->current.state == CONNECTION_ERROR || s->current.state == INACTIVE_TIMEOUT) {
         markParentDown(s);
       }
       s->parent_result.result = PARENT_FAIL;

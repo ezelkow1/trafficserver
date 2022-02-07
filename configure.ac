@@ -805,7 +805,7 @@ AM_CONDITIONAL([BUILD_TSCONFIG_GRAMMAR], [ test -n "$LEX" && test -n "$YACC" ])
 AC_PATH_PROG([DOXYGEN], [doxygen]) # needed for Doxygen
 AC_PATH_PROG([PERL], [perl],[not found])
 AS_IF([test "x$PERL" = "xnot found"],
-  [AC_MSG_ERROR([check for perl failed. Have you installed perl?])]
+  BUILD_PERL_LIB=false
 )
 AC_ARG_VAR([DOXYGEN], [full path of Doxygen executable])
 AC_ARG_VAR([PERL], [full path of Perl executable])
@@ -1311,6 +1311,7 @@ AC_CHECK_FUNCS([ \
   X509_get0_signature \
   ERR_get_error_all \
   SHA1 \
+  SSL_SESSION_dup \
 ])
 
 AC_CHECK_FUNC([ASN1_STRING_get0_data], [],
@@ -1768,9 +1769,10 @@ AC_SUBST(use_hrw_maxminddb)
 AM_CONDITIONAL([BUILD_HEALTHCHECK_PLUGIN], [ test "$ac_cv_func_inotify_init" = "yes" ])
 
 #
-# Check for tcmalloc and jemalloc
-TS_CHECK_JEMALLOC
+# Check for tcmalloc, jemalloc and mimalloc
 TS_CHECK_TCMALLOC
+TS_CHECK_JEMALLOC
+TS_CHECK_MIMALLOC
 
 #
 # Check for libreadline/libedit
