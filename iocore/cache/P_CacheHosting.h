@@ -152,7 +152,7 @@ private:
 struct CacheHostTableConfig;
 typedef int (CacheHostTableConfig::*CacheHostTabHandler)(int, void *);
 struct CacheHostTableConfig : public Continuation {
-  CacheHostTable **ppt;
+  std::atomic<CacheHostTable **> ppt;
   CacheHostTableConfig(CacheHostTable **appt) : Continuation(nullptr), ppt(appt)
   {
     SET_HANDLER((CacheHostTabHandler)&CacheHostTableConfig::mainEvent);
@@ -164,9 +164,10 @@ struct CacheHostTableConfig : public Continuation {
     (void)e;
     (void)event;
     Debug("cache_hosting", "hosting mainEvent hit, create new and swap");
+
     CacheHostTable *t = new CacheHostTable((*ppt)->cache, (*ppt)->type);
-    // CacheHostTable *old = (CacheHostTable *)ink_atomic_swap(&t, *ppt);
-    CacheHostTable *old = (CacheHostTable *)ink_atomic_swap(ppt, t);
+    auto old          = *ppt;
+    (*ppt)            = t;
     new_Deleter(old, CACHE_MEM_FREE_TIMEOUT);
     return EVENT_DONE;
   }
