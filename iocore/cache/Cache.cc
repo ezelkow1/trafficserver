@@ -278,7 +278,7 @@ update_cache_config(const char * /* name ATS_UNUSED */, RecDataT /* data_type AT
 {
   int new_value                  = validate_rww(data.rec_int);
   cache_config_read_while_writer = new_value;
-
+  Debug("cache_hosting", "update_cache_config - cache.cc");
   return 0;
 }
 
@@ -2049,7 +2049,7 @@ Cache::open_done()
 
   hosttable = new CacheHostTable(this, scheme);
   hosttable->register_config_callback(&hosttable);
-
+  Debug("cache_hosting", "registered callback for hosttable: %p", hosttable);
   if (hosttable->gen_host_rec.num_cachevols == 0) {
     ready = CACHE_INIT_FAILED;
   } else {
@@ -3008,14 +3008,18 @@ create_volume(int volume_number, off_t size_in_blocks, int scheme, CacheVol *cp)
 void
 rebuild_host_table(Cache *cache)
 {
+  Debug("cache_hosting", "rebuild_host_table in cache.cc, num: %d", cache->hosttable->m_numEntries);
   build_vol_hash_table(&cache->hosttable->gen_host_rec);
   if (cache->hosttable->m_numEntries != 0) {
     CacheHostMatcher *hm   = cache->hosttable->getHostMatcher();
     CacheHostRecord *h_rec = hm->getDataArray();
     int h_rec_len          = hm->getNumElements();
     int i;
+    Debug("cache_hosting", "rebuild, num>0, entry: %d, elem: %d", cache->hosttable->getEntryCount(), h_rec_len);
+    hm->Print();
     for (i = 0; i < h_rec_len; i++) {
       build_vol_hash_table(&h_rec[i]);
+      Debug("cache_hosting", "rebuild cache.cc, elem: %d", h_rec_len);
     }
   }
 }
@@ -3024,14 +3028,20 @@ rebuild_host_table(Cache *cache)
 Vol *
 Cache::key_to_vol(const CacheKey *key, const char *hostname, int host_len)
 {
+  // Debug("cache_hosting", "cache- key_to_vol, rebuilding host table");
+  // rebuild_host_table2(hosttable);
+  // rebuild_host_table(this);
   uint32_t h                 = (key->slice32(2) >> DIR_TAG_WIDTH) % VOL_HASH_TABLE_SIZE;
   unsigned short *hash_table = hosttable->gen_host_rec.vol_hash_table;
   CacheHostRecord *host_rec  = &hosttable->gen_host_rec;
-
+  Debug("cache_hosting", "cache-key_to_vol, hosttable num entries: %d, %d, (%p)", hosttable->m_numEntries,
+        this->hosttable->m_numEntries, hosttable);
   if (hosttable->m_numEntries > 0 && host_len) {
     CacheHostResult res;
     hosttable->Match(hostname, host_len, &res);
+    Debug("cache_hosting", "cache-keytovol, hostname: %s, len: %d ", hostname, host_len);
     if (res.record) {
+      Debug("cache_hosting", "cache-keytovol, found res.record in hostname match");
       unsigned short *host_hash_table = res.record->vol_hash_table;
       if (host_hash_table) {
         if (is_debug_tag_set("cache_hosting")) {

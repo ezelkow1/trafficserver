@@ -195,6 +195,7 @@ CacheHostTable::CacheHostTable(Cache *c, CacheType typ)
   ink_release_assert(config_path);
   Debug("cache_hosting", "Creating new cachehosttable entry");
   m_numEntries = this->BuildTable(config_path);
+  Debug("cache_hosting", "new table created with num: %d, type: %d, thisnum: %d", m_numEntries, this->type, this->m_numEntries);
 }
 
 CacheHostTable::~CacheHostTable()
