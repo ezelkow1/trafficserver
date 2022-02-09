@@ -980,14 +980,14 @@ struct Vol;
 class CacheHostTable;
 
 struct Cache {
-  int cache_read_done       = 0;
-  int total_good_nvol       = 0;
-  int total_nvol            = 0;
-  int ready                 = CACHE_INITIALIZING;
-  int64_t cache_size        = 0; // in store block size
-  CacheHostTable *hosttable = nullptr;
-  int total_initialized_vol = 0;
-  CacheType scheme          = CACHE_NONE_TYPE;
+  int cache_read_done                       = 0;
+  int total_good_nvol                       = 0;
+  int total_nvol                            = 0;
+  int ready                                 = CACHE_INITIALIZING;
+  int64_t cache_size                        = 0; // in store block size
+  std::shared_ptr<CacheHostTable> hosttable = nullptr;
+  int total_initialized_vol                 = 0;
+  CacheType scheme                          = CACHE_NONE_TYPE;
 
   int open(bool reconfigure, bool fix);
   int close();

@@ -233,7 +233,7 @@ int
 CacheHostTable::config_callback(const char * /* name ATS_UNUSED */, RecDataT /* data_type ATS_UNUSED */,
                                 RecData /* data ATS_UNUSED */, void *cookie)
 {
-  CacheHostTable **ppt = static_cast<CacheHostTable **>(cookie);
+  auto ppt = static_cast<std::shared_ptr<CacheHostTable> *>(cookie);
   Debug("cache_hosting", "Inside hosting config_callback, schedule new hosttableconfig");
   eventProcessor.schedule_imm(new CacheHostTableConfig(ppt));
   return 0;

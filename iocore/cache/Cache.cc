@@ -2047,9 +2047,10 @@ Cache::open_done()
     return 0;
   }
 
-  hosttable = new CacheHostTable(this, scheme);
+  hosttable = std::shared_ptr<CacheHostTable>(new CacheHostTable(this, scheme),
+                                              [](CacheHostTable *t) { new_Deleter(t, CACHE_MEM_FREE_TIMEOUT); });
   hosttable->register_config_callback(&hosttable);
-  Debug("cache_hosting", "registered callback for hosttable: %p", hosttable);
+
   if (hosttable->gen_host_rec.num_cachevols == 0) {
     ready = CACHE_INIT_FAILED;
   } else {
@@ -3034,8 +3035,7 @@ Cache::key_to_vol(const CacheKey *key, const char *hostname, int host_len)
   uint32_t h                 = (key->slice32(2) >> DIR_TAG_WIDTH) % VOL_HASH_TABLE_SIZE;
   unsigned short *hash_table = hosttable->gen_host_rec.vol_hash_table;
   CacheHostRecord *host_rec  = &hosttable->gen_host_rec;
-  Debug("cache_hosting", "cache-key_to_vol, hosttable num entries: %d, %d, (%p)", hosttable->m_numEntries,
-        this->hosttable->m_numEntries, hosttable);
+  Debug("cache_hosting", "cache-key_to_vol, hosttable num entries: %d, %d", hosttable->m_numEntries, this->hosttable->m_numEntries);
   if (hosttable->m_numEntries > 0 && host_len) {
     CacheHostResult res;
     hosttable->Match(hostname, host_len, &res);

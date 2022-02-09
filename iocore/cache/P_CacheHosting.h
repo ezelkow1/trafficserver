@@ -133,7 +133,7 @@ public:
   static int config_callback(const char *, RecDataT, RecData, void *);
 
   void
-  register_config_callback(CacheHostTable **p)
+  register_config_callback(std::shared_ptr<CacheHostTable> *p)
   {
     REC_RegisterConfigUpdateFunc("proxy.config.cache.hosting_filename", CacheHostTable::config_callback, (void *)p);
   }
@@ -152,8 +152,8 @@ private:
 struct CacheHostTableConfig;
 typedef int (CacheHostTableConfig::*CacheHostTabHandler)(int, void *);
 struct CacheHostTableConfig : public Continuation {
-  std::atomic<CacheHostTable **> ppt;
-  CacheHostTableConfig(CacheHostTable **appt) : Continuation(nullptr), ppt(appt)
+  std::shared_ptr<CacheHostTable> *ppt;
+  CacheHostTableConfig(std::shared_ptr<CacheHostTable> *appt) : Continuation(nullptr), ppt(appt)
   {
     SET_HANDLER((CacheHostTabHandler)&CacheHostTableConfig::mainEvent);
   }
@@ -164,11 +164,14 @@ struct CacheHostTableConfig : public Continuation {
     (void)e;
     (void)event;
     Debug("cache_hosting", "hosting mainEvent hit, create new and swap");
-
-    CacheHostTable *t = new CacheHostTable((*ppt)->cache, (*ppt)->type);
-    auto old          = *ppt;
-    (*ppt)            = t;
-    new_Deleter(old, CACHE_MEM_FREE_TIMEOUT);
+    while (true) {
+      auto old = ppt;
+      std::shared_ptr<CacheHostTable> t(new CacheHostTable(old->get()->cache, old->get()->type));
+      if (std::atomic_compare_exchange_weak(ppt, old, t)) {
+        Debug("cache_hosting", "atomic exchange succeeded, exit");
+        break;
+      }
+    }
     return EVENT_DONE;
   }
 };
