@@ -996,7 +996,7 @@ HttpSM::state_watch_for_client_abort(int event, void *data)
   case VC_EVENT_EOS: {
     // We got an early EOS. If the tunnal has cache writer, don't kill it for background fill.
     NetVConnection *netvc = ua_txn->get_netvc();
-    if (ua_txn->allow_half_open() || tunnel.has_consumer_besides_client()) {
+    if (ua_txn->allow_half_open()) {
       if (netvc) {
         netvc->do_io_shutdown(IO_SHUTDOWN_READ);
       }
