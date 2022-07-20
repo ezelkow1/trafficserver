@@ -188,10 +188,18 @@ CacheHostTable::CacheHostTable(Cache *c, CacheType typ)
   cache        = c;
   matcher_name = "[CacheHosting]";
 
+  hostingUpdate = new ConfigUpdateHandler<CacheHostTable>();
+  hostingUpdate->attach("proxy.config.cache.hosting_filename");
+  ConfigInfo *config = configProcessor.get(configid);
+  if (config == nullptr) {
+    configid = configProcessor.set(configid, config);
+    Warning("%s not loaded", ts::filename::HOSTING);
+  }
   config_path = RecConfigReadConfigPath("proxy.config.cache.hosting_filename");
   ink_release_assert(config_path);
 
   m_numEntries = this->BuildTable(config_path);
+  configProcessor.set(configid, this);
 }
 
 CacheHostTable::~CacheHostTable()

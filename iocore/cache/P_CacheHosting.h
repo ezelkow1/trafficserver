@@ -34,6 +34,7 @@ struct CacheVol;
 struct CacheHostResult;
 struct Cache;
 
+static size_t configid;
 struct CacheHostRecord {
   int Init(CacheType typ);
   int Init(matcher_line *line_info, CacheType typ);
@@ -105,7 +106,7 @@ private:
   CacheType type;
 };
 
-class CacheHostTable
+class CacheHostTable : public ConfigInfo
 {
 public:
   // Parameter name must not be deallocated before this
@@ -151,6 +152,8 @@ private:
 
 struct CacheHostTableConfig;
 typedef int (CacheHostTableConfig::*CacheHostTabHandler)(int, void *);
+
+static ConfigUpdateHandler<CacheHostTable> *hostingUpdate;
 struct CacheHostTableConfig : public Continuation {
   CacheHostTable **ppt;
   CacheHostTableConfig(CacheHostTable **appt) : Continuation(nullptr), ppt(appt)
