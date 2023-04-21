@@ -907,6 +907,8 @@ Part     Description
 ======== ======================================================================
 HOST     Full hostname.
 
+MATRIX   URL matrix parameters (including leading semicolon).
+
 PATH     URL substring beginning with (but not including) the first ``/`` after
          the hostname up to, but not including, the query string. **Note**: previous
          versions of ATS had a `%{PATH}` directive, this will no longer work. Instead,

@@ -350,7 +350,12 @@ ConditionUrl::append_value(std::string &s, const Resources &res)
     break;
   case URL_QUAL_MATRIX:
     q_str = TSUrlHttpParamsGet(bufp, url, &i);
-    s.append(q_str, i);
+    // TSUrlHttpParamsGet drops the leading ';', adding it back
+    if (i > 0) {
+      s.append(";", 1);
+      s.append(q_str, i);
+      i++; // Extend length to include leading `;`
+    }
     TSDebug(PLUGIN_NAME, "   Matrix parameters to match is: %.*s", i, q_str);
     break;
   case URL_QUAL_SCHEME:
