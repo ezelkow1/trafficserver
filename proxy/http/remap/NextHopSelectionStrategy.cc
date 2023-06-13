@@ -82,6 +82,10 @@ NextHopSelectionStrategy::NextHopSelectionStrategy(const std::string_view &name,
       cache_peer_result = n["cache_peer_result"].as<bool>();
     }
 
+    if (n["use_pristine"]) {
+      use_pristine = n["use_pristine"].as<bool>();
+    }
+
     // failover node.
     YAML::Node failover_node_n = n["failover"];
     if (failover_node_n) {

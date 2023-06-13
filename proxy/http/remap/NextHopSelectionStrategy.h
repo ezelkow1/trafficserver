@@ -210,6 +210,7 @@ public:
   bool parent_is_proxy     = true;
   bool ignore_self_detect  = false;
   bool cache_peer_result   = true;
+  bool use_pristine        = false;
   NHPolicyType policy_type = NH_UNDEFINED;
   NHSchemeType scheme      = NH_SCHEME_NONE;
   NHRingMode ring_mode     = NH_ALTERNATE_RING;
