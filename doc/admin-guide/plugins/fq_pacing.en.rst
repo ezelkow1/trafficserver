@@ -24,6 +24,8 @@ This is a remap plugin  that allows ATS to rate limit an individual TCP connecti
 Linux support for the Fair Queuing qdisc. FQ and SO_MAX_PACING_RATE is available in RedHat/Centos 7.2+,
 Debian 8+, and any other Linux distro with a kernel 3.18 or greater.
 
+The limit can also be set only to apply when a maximum bps has been reached on a specific interface.
+
 
 How it Works
 ------------
@@ -46,3 +48,13 @@ Here is an example remap.config entry:
 
   map http://reverse-fqdn.com http://origin.com @plugin=fq_pacing.so @pparam=--rate=100000
 
+Limiting based on a maximum can be enabled with the ``--max-rate=BytesPerSec`` and ``--interface=<inf name>``.
+This will only enable pacing at the rate specified by ``--rate`` once the specific interface has surpassed the ``--max-rate``.
+The check on this is done once a second and once the limit is hit then pacing is only applied to new incoming connections, current
+connections cannot be rate limited but new ones will be until the current throughput on the interface has dropped below the ``--max-rate``.
+
+An example is:
+
+::
+
+   map http://reverse-fqdn.com http://origin.com @plugin=fq_pacing.so @pparam=--rate=100000 @pparam=--max-rate=10000000 @pparam=--interface=enp0s3
