@@ -311,6 +311,8 @@ TSRemapDoRemap(void *instance, TSHttpTxn txnp, TSRemapRequestInfo *rri)
     res = safe_setsockopt(client_fd, SOL_SOCKET, SO_MAX_PACING_RATE, (char *)&cfg->pacing_rate, sizeof(cfg->pacing_rate));
     if ((res < 0)) {
       TSError("[fq_pacing] Error setting SO_MAX_PACING_RATE, errno=%d", errno);
+    } else {
+      TSDebug(PLUGIN_NAME, "Set MAX_PACING_RATE: %ld", cfg->pacing_rate);
     }
   }
 #endif
