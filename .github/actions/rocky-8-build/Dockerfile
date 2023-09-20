@@ -153,3 +153,6 @@ RUN bash /root/install_abi_tools.sh
 
 # Keep this at the end to clean up the yum cache.
 RUN yum clean all
+
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
