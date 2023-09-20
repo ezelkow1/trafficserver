@@ -1,3 +1,5 @@
+#!/bin/sh -l
+
 set -x
 set -e
 source /opt/rh/gcc-toolset-11/enable
