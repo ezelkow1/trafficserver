@@ -1,5 +1,5 @@
 env:
-  CONTAINER: ghcr.io/${{ github.repository }}/ci/Rocky
+  CONTAINER: ghcr.io/${{ github.repository }}/ci/rocky
 
 on:
   workflow_dispatch: # run manually
