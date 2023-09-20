@@ -1,0 +1,13 @@
+on: [push]
+
+jobs:
+  rocky_8_build_job:
+    runs-on: ubuntu-latest
+    name: A job to build rocky 8
+    steps:
+      - name: Rocky 8 build action step
+        id: build
+        uses: actions/rocky-8-build@v2
+      # Use the output from the `hello` step
+      - name: Build
+        run: echo "The time was ${{ steps.hello.outputs.time }}"
