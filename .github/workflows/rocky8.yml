@@ -1,3 +1,6 @@
+env:
+  CONTAINER: ghcr.io/${{ github.repository }}/ci/Rocky
+
 on:
   workflow_dispatch: # run manually
   push:
@@ -10,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
       - name: Set image name
-        run: echo 'IMAGE_NAME=Rocky:8' >> '${{ github.env }}'
+        run: echo 'IMAGE_NAME=${{ env.CONTAINER }}:8' >> '${{ github.env }}'
       - name: Build ${{ env.IMAGE_NAME }}
         working-directory: .github/actions/rocky-8-build
         run: docker build --tag ${{ env.IMAGE_NAME }} --load .
