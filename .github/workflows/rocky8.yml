@@ -5,6 +5,8 @@ jobs:
     runs-on: ubuntu-latest
     name: A job to build rocky 8
     steps:
+      - name: Checkout
+        uses: actions/checkout@v1
       - name: Rocky 8 build action step
         id: build
         uses: rocky-8-build@v1
