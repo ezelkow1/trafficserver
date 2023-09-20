@@ -1,8 +1,4 @@
-on: 
-  workflow_dispatch: #run manually
-  push:
-    paths:
-      - .env
+on: [push]
 
 jobs:
   rocky_8_build_job:
