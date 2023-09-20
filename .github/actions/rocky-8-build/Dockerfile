@@ -155,4 +155,5 @@ RUN bash /root/install_abi_tools.sh
 RUN yum clean all
 
 COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
