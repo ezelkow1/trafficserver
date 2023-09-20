@@ -13,7 +13,7 @@ jobs:
         run: echo 'IMAGE_NAME=Rocky:8' >> '${{ github.env }}'
       - name: Build ${{ env.IMAGE_NAME }}
         working-directory: .github/actions/rocky-8-build
-        run: docker build --build-arg --tag ${{ env.IMAGE_NAME }} --load .
+        run: docker build --tag ${{ env.IMAGE_NAME }} --load .
       - name: docker login ghcr.io
         uses: docker/login-action@v2
         with:
