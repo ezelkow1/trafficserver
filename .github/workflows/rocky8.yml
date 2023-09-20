@@ -1,4 +1,7 @@
-on: [push]
+on: 
+  push:
+    paths:
+      - .env
 
 jobs:
   rocky_8_build_job:
@@ -7,8 +10,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+      - name: Load environment
+        run: cp .env '%{{ github.env }}'
       - name: Set image name
-        run: echo 'IMAGE_NAME=Rocky:8'
+        run: echo 'IMAGE_NAME=Rocky:8' >> '${{ github.env }}'
       - name: Build ${{ env.IMAGE_NAME }}
         working-directory: .github/actions/rocky-8-build
         run: docker build --build-arg --tag ${{ env.IMAGE_NAME }} --load .
