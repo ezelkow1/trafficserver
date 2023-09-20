@@ -33,3 +33,4 @@ else
    ctest -j4 --output-on-failure --no-compress-output -T Test
    /tmp/ats_quiche/bin/traffic_server -K -k -R 1
    popd
+fi
