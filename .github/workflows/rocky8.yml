@@ -1,4 +1,12 @@
-on: [push]
+on:
+  workflow_dispatch: # run manually
+  push:
+    paths:
+      - .env
+  pull_request:
+    paths:
+      - .env
+    types: [ opened, reopened, ready_for_review, synchronize ]
 
 jobs:
   rocky_8_build_job:
