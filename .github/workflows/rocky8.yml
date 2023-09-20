@@ -9,7 +9,7 @@ jobs:
         uses: actions/checkout@v1
       - name: Rocky 8 build action step
         id: build
-        uses: rocky-8-build@v1
+        uses: ./.github/actions/rocky-8-build@v1
       # Use the output from the `hello` step
       - name: Build
         run: echo "The time was ${{ steps.hello.outputs.time }}"
