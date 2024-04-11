@@ -618,6 +618,53 @@ get_date_from_cached_hdr(TSHttpTxn txn)
   return date;
 }
 
+static time_t
+set_date_to_cached_hdr(TSHttpTxn txn)
+{
+  TSMBuffer buf;
+  TSMLoc hdr_loc, date_loc;
+  time_t date = 0;
+  TSReturnCode ret;
+  if (TSHttpTxnServerRespGet(txn, &buf, &hdr_loc) == TS_SUCCESS) {
+    date_loc = TSMimeHdrFieldFind(buf, hdr_loc, TS_MIME_FIELD_DATE, TS_MIME_LEN_DATE);
+    if (date_loc != TS_NULL_MLOC) {
+      date = time(nullptr);
+      ret  = TSMimeHdrFieldValueDateSet(buf, hdr_loc, date_loc, date);
+      TSHandleMLocRelease(buf, hdr_loc, date_loc);
+    }
+    TSHandleMLocRelease(buf, TS_NULL_MLOC, hdr_loc);
+  }
+
+  return date;
+}
+
+static int
+matched_header_exists(TSHttpTxn txn, const char *matched)
+{
+  TSMBuffer buf;
+  TSMLoc hdr_loc, matched_loc;
+  int ret = 0;
+  // The match header is added to the proxy request upstream
+
+  if (matched == nullptr) {
+    return ret;
+  }
+
+  if (TSHttpTxnServerReqGet(txn, &buf, &hdr_loc) == TS_SUCCESS) {
+    matched_loc = TSMimeHdrFieldFind(buf, hdr_loc, matched, strlen(matched));
+    if (matched_loc != TS_NULL_MLOC) {
+      TSHandleMLocRelease(buf, hdr_loc, matched_loc);
+      ret = 1;
+    } else {
+      ret = 0;
+    }
+    TSHandleMLocRelease(buf, TS_NULL_MLOC, hdr_loc);
+  } else {
+    Dbg(dbg_ctl, "No cached response found");
+  }
+  return ret;
+}
+
 static void
 add_header(TSHttpTxn txn, const char *const header, invalidate_t *const rule)
 {
@@ -691,8 +738,6 @@ main_handler(TSCont cont, TSEvent event, void *edata)
         while (iptr) {
           if (!date) {
             date = get_date_from_cached_hdr(txn);
-            Dbg(dbg_ctl, "Cached Date header is: %jd", intmax_t(date));
-            now = time(nullptr);
           }
           if (date <= iptr->epoch && now < iptr->expiry) {
             if (!url) {
@@ -719,6 +764,14 @@ main_handler(TSCont cont, TSEvent event, void *edata)
           TSfree(url);
         }
       }
+    }
+    break;
+  case TS_EVENT_HTTP_READ_RESPONSE_HDR:
+    pstate = (plugin_state_t *)TSContDataGet(cont);
+    if (pstate->match_header && matched_header_exists(txn, pstate->match_header)) {
+      now  = time(nullptr);
+      date = set_date_to_cached_hdr(txn);
+      Dbg(dbg_ctl, "Saw match header, set date to %jd", intmax_t(date));
     }
     break;
   default:
@@ -834,6 +887,7 @@ TSPluginInit(int argc, const char *argv[])
   main_cont = TSContCreate(main_handler, nullptr);
   TSContDataSet(main_cont, (void *)pstate);
   TSHttpHookAdd(TS_HTTP_CACHE_LOOKUP_COMPLETE_HOOK, main_cont);
+  TSHttpHookAdd(TS_HTTP_READ_RESPONSE_HDR_HOOK, main_cont);
 
   config_cont = TSContCreate(config_handler, TSMutexCreate());
   TSContDataSet(config_cont, (void *)pstate);
