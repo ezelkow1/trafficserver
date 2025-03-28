@@ -512,9 +512,9 @@ check_source_compiles(
   void main() { int x = SSL_CTRL_GET_EXTRA_CHAIN_CERTS; }" HAVE_NATIVE_DUAL_CERT_SUPPORT
 )
 
-set(CMAKE_REQUIRED_INCLUDES netinet/in.h netinet/tcp.h)
+set(CMAKE_EXTRA_INCLUDE_FILES netinet/in.h netinet/tcp.h)
 check_type_size("struct tcp_info" STRUCT_TCP_INFO)
-unset(CMAKE_REQUIRED_INCLUDES)
+unset(CMAKE_EXTRA_INCLUDE_FILES)
 
 # Since Linux 2.6.12
 check_struct_has_member("struct tcp_info" tcpi_total_retrans "linux/tcp.h" HAVE_STRUCT_TCP_INFO_TCPI_TOTAL_RETRANS)
