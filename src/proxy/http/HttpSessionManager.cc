@@ -431,7 +431,6 @@ HttpSessionManager::_acquire_session(sockaddr const *ip, CryptoHash const &hostn
 {
   PoolableSession *to_return = nullptr;
   HSMresult_t      retval    = HSM_NOT_FOUND;
-  bool             acquired  = false;
 
   // Extend the mutex window until the acquired Server session is attached
   // to the SM. Releasing the mutex before that results in race conditions
@@ -448,12 +447,10 @@ HttpSessionManager::_acquire_session(sockaddr const *ip, CryptoHash const &hostn
 
     if (locked) {
       if (TS_SERVER_SESSION_SHARING_POOL_THREAD == pool_type) {
-        retval   = ethread->server_session_pool->acquireSession(ip, hostname_hash, match_style, sm, to_return);
-        acquired = (HSM_DONE == retval);
+        retval = ethread->server_session_pool->acquireSession(ip, hostname_hash, match_style, sm, to_return);
         Dbg(dbg_ctl_http_ss, "[acquire session] thread pool search %s", to_return ? "successful" : "failed");
       } else {
-        retval   = m_g_pool->acquireSession(ip, hostname_hash, match_style, sm, to_return);
-        acquired = (HSM_DONE == retval);
+        retval = m_g_pool->acquireSession(ip, hostname_hash, match_style, sm, to_return);
         Dbg(dbg_ctl_http_ss, "[acquire session] global pool search %s", to_return ? "successful" : "failed");
         // At this point to_return has been removed from the pool. Do we need to move it
         // to the same thread?
@@ -506,11 +503,6 @@ HttpSessionManager::_acquire_session(sockaddr const *ip, CryptoHash const &hostn
       }
     }
   }
-
-  if (acquired) {
-    Metrics::Gauge::decrement(http_rsb.pooled_server_connections);
-  }
-
   return retval;
 }
 
@@ -524,26 +516,20 @@ HttpSessionManager::release_session(PoolableSession *to_release)
 
   // The per thread lock looks like it should not be needed but if it's not locked the close checking I/O op will crash.
 
-  {
-    MutexLock    mlock;
-    MutexTryLock tlock;
-    bool const   locked = lockSessionPool(pool->mutex, ethread, this->get_pool_type(), &mlock, &tlock);
+  MutexLock    mlock;
+  MutexTryLock tlock;
+  bool const   locked = lockSessionPool(pool->mutex, ethread, this->get_pool_type(), &mlock, &tlock);
 
-    if (locked) {
-      pool->releaseSession(to_release);
-    } else if (this->get_pool_type() == TS_SERVER_SESSION_SHARING_POOL_HYBRID) {
-      // Try again with the thread pool
-      to_release->sharing_pool = TS_SERVER_SESSION_SHARING_POOL_THREAD;
-      return release_session(to_release);
-    } else {
-      Dbg(dbg_ctl_http_ss, "[%" PRId64 "] [release session] could not release session due to lock contention",
-          to_release->connection_id());
-      released_p = false;
-    }
-  }
-
-  if (released_p) {
-    Metrics::Gauge::increment(http_rsb.pooled_server_connections);
+  if (locked) {
+    pool->releaseSession(to_release);
+  } else if (this->get_pool_type() == TS_SERVER_SESSION_SHARING_POOL_HYBRID) {
+    // Try again with the thread pool
+    to_release->sharing_pool = TS_SERVER_SESSION_SHARING_POOL_THREAD;
+    return release_session(to_release);
+  } else {
+    Dbg(dbg_ctl_http_ss, "[%" PRId64 "] [release session] could not release session due to lock contention",
+        to_release->connection_id());
+    released_p = false;
   }
 
   return released_p ? HSM_DONE : HSM_RETRY;
@@ -561,7 +547,9 @@ ServerSessionPool::removeSession(PoolableSession *to_remove)
         m_ip_pool.count());
   }
   m_fqdn_pool.erase(to_remove);
-  m_ip_pool.erase(to_remove);
+  if (m_ip_pool.erase(to_remove)) {
+    Metrics::Gauge::decrement(http_rsb.pooled_server_connections);
+  }
   if (dbg_ctl_http_ss.on()) {
     Dbg(dbg_ctl_http_ss, "After Remove session %p m_fqdn_pool size=%zu m_ip_pool_size=%zu", to_remove, m_fqdn_pool.count(),
         m_ip_pool.count());
@@ -576,6 +564,7 @@ ServerSessionPool::addSession(PoolableSession *ss)
   // put it in the pools.
   m_ip_pool.insert(ss);
   m_fqdn_pool.insert(ss);
+  Metrics::Gauge::increment(http_rsb.pooled_server_connections);
 
   if (dbg_ctl_http_ss.on()) {
     char peer_ip[INET6_ADDRPORTSTRLEN];
