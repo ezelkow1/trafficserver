@@ -78,6 +78,7 @@ struct RamCacheCLFUSEntry {
     } flag_bits;
     uint32_t flags;
   };
+  int partition; // which partition this entry belongs to (for shared mode)
   LINK(RamCacheCLFUSEntry, lru_link);
   LINK(RamCacheCLFUSEntry, hash_link);
   Ptr<IOBufferData> data;
@@ -88,52 +89,85 @@ class RamCacheCLFUS : public RamCache
 public:
   RamCacheCLFUS() {}
 
-  // returns 1 on found/stored, 0 on not found/stored, if provided auxkey1 and auxkey2 must match
+  // returns 1 on found/stored, 0 on not found/stored, if provided auxkey must match
   int     get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey = 0) override;
   int     put(CryptoHash *key, IOBufferData *data, uint32_t len, bool copy = false, uint64_t auxkey = 0) override;
   int     fixup(const CryptoHash *key, uint64_t old_auxkey, uint64_t new_auxkey) override;
   int64_t size() const override;
 
-  void init(int64_t max_bytes, StripeSM *stripe) override;
+  void init(int64_t max_bytes, StripeSM *stripe, bool shared = false) override;
 
   void compress_entries(EThread *thread, int do_at_most = INT_MAX);
 
   // TODO move it to private.
   StripeSM *stripe = nullptr; // for stats
 private:
-  int64_t _max_bytes = 0;
-  int64_t _bytes     = 0;
-  int64_t _objects   = 0;
+  int64_t              _max_bytes = 0;
+  std::atomic<int64_t> _bytes{0};   // atomic for shared mode
+  std::atomic<int64_t> _objects{0}; // atomic for shared mode
+  std::atomic<int64_t> _history{0}; // atomic for shared mode
 
-  double  _average_value                        = 0;
-  int64_t _history                              = 0;
-  int     _ibuckets                             = 0;
-  int     _nbuckets                             = 0;
-  DList(RamCacheCLFUSEntry, hash_link) *_bucket = nullptr;
+  // Per-partition state for shared mode
+  mutable std::mutex  _partition_locks[RAM_CACHE_PARTITIONS];
+  double              _partition_average_value[RAM_CACHE_PARTITIONS] = {0};
+  int                 _partition_ncompressed[RAM_CACHE_PARTITIONS]   = {0};
+  RamCacheCLFUSEntry *_partition_compressed[RAM_CACHE_PARTITIONS]    = {nullptr};
+  Que(RamCacheCLFUSEntry, lru_link) _partition_lru[RAM_CACHE_PARTITIONS][2];
+
+  // Non-shared mode state (legacy)
+  double              _average_value = 0;
+  int                 _ncompressed   = 0;
+  RamCacheCLFUSEntry *_compressed    = nullptr;
   Que(RamCacheCLFUSEntry, lru_link) _lru[2];
-  uint16_t           *_seen        = nullptr;
-  int                 _ncompressed = 0;
-  RamCacheCLFUSEntry *_compressed  = nullptr; // first uncompressed lru[0] entry
+
+  int _ibuckets                                 = 0;
+  int _nbuckets                                 = 0;
+  DList(RamCacheCLFUSEntry, hash_link) *_bucket = nullptr;
+  uint16_t *_seen                               = nullptr;
+
+  int
+  _get_partition(int bucket) const
+  {
+    return bucket % RAM_CACHE_PARTITIONS;
+  }
 
   void                _resize_hashtable();
-  void                _victimize(RamCacheCLFUSEntry *e);
-  void                _move_compressed(RamCacheCLFUSEntry *e);
-  RamCacheCLFUSEntry *_destroy(RamCacheCLFUSEntry *e);
-  void                _requeue_victims(Que(RamCacheCLFUSEntry, lru_link) & victims);
-  void                _tick(); // move CLOCK on history
+  void                _victimize(RamCacheCLFUSEntry *e, int partition);
+  void                _move_compressed(RamCacheCLFUSEntry *e, int partition);
+  RamCacheCLFUSEntry *_destroy(RamCacheCLFUSEntry *e, int partition);
+  void                _requeue_victims(Que(RamCacheCLFUSEntry, lru_link) & victims, int partition);
+  void                _tick(int partition); // move CLOCK on history
 };
 
 int64_t
 RamCacheCLFUS::size() const
 {
   int64_t s = 0;
-  for (int i = 0; i < 2; i++) {
-    forl_LL(RamCacheCLFUSEntry, e, this->_lru[i])
-    {
-      s += sizeof(*e);
-      if (e->data) {
-        s += sizeof(*e->data);
-        s += e->data->block_size();
+  if (_shared) {
+    // In shared mode, iterate through all partition LRUs
+    for (int p = 0; p < RAM_CACHE_PARTITIONS; p++) {
+      std::lock_guard<std::mutex> lock(_partition_locks[p]);
+      for (int i = 0; i < 2; i++) {
+        forl_LL(RamCacheCLFUSEntry, e, this->_partition_lru[p][i])
+        {
+          s += sizeof(*e);
+          if (e->data) {
+            s += sizeof(*e->data);
+            s += e->data->block_size();
+          }
+        }
+      }
+    }
+  } else {
+    // Non-shared mode uses single LRU
+    for (int i = 0; i < 2; i++) {
+      forl_LL(RamCacheCLFUSEntry, e, this->_lru[i])
+      {
+        s += sizeof(*e);
+        if (e->data) {
+          s += sizeof(*e->data);
+          s += e->data->block_size();
+        }
       }
     }
   }
@@ -207,12 +241,12 @@ RamCacheCLFUS::_resize_hashtable()
 }
 
 void
-RamCacheCLFUS::init(int64_t abytes, StripeSM *astripe)
+RamCacheCLFUS::init(int64_t abytes, StripeSM *astripe, bool shared)
 {
-  ink_assert(astripe != nullptr);
+  _shared          = shared;
   stripe           = astripe;
   this->_max_bytes = abytes;
-  DDbg(dbg_ctl_ram_cache, "initializing ram_cache %" PRId64 " bytes", abytes);
+  DDbg(dbg_ctl_ram_cache, "initializing ram_cache %" PRId64 " bytes, shared=%d", abytes, shared);
   if (!this->_max_bytes) {
     return;
   }
@@ -252,16 +286,30 @@ RamCacheCLFUS::get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey
   if (!this->_max_bytes) {
     return 0;
   }
-  int64_t             i = key->slice32(3) % this->_nbuckets;
+
+  int64_t i         = key->slice32(3) % this->_nbuckets;
+  int     partition = _get_partition(i);
+
+  std::unique_lock<std::mutex> lock(_shared ? _partition_locks[partition] : _mutex);
+
   RamCacheCLFUSEntry *e = this->_bucket[i].head;
   char               *b = nullptr;
+
+  // Get the appropriate average_value for this partition
+  double &average_value = _shared ? this->_partition_average_value[partition] : this->_average_value;
+
   while (e) {
     if (e->key == *key && e->auxkey == auxkey) {
-      this->_move_compressed(e);
+      this->_move_compressed(e, partition);
       if (!e->flag_bits.lru) { // in memory
-        if (CACHE_VALUE(e) > this->_average_value) {
-          this->_lru[e->flag_bits.lru].remove(e);
-          this->_lru[e->flag_bits.lru].enqueue(e);
+        if (CACHE_VALUE(e) > average_value) {
+          if (_shared) {
+            this->_partition_lru[partition][e->flag_bits.lru].remove(e);
+            this->_partition_lru[partition][e->flag_bits.lru].enqueue(e);
+          } else {
+            this->_lru[e->flag_bits.lru].remove(e);
+            this->_lru[e->flag_bits.lru].enqueue(e);
+          }
         }
         e->hits++;
         uint32_t ram_hit_state = RAM_HIT_COMPRESS_NONE;
@@ -306,7 +354,9 @@ RamCacheCLFUS::get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey
             int64_t delta  = (static_cast<int64_t>(e->compressed_len)) - static_cast<int64_t>(e->size);
             this->_bytes  += delta;
             ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, delta);
-            ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+            if (stripe) {
+              ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+            }
             e->size = e->compressed_len;
             check_accounting(this);
             e->flag_bits.compressed = 0;
@@ -322,12 +372,16 @@ RamCacheCLFUS::get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey
           (*ret_data) = data;
         }
         ts::Metrics::Counter::increment(cache_rsb.ram_cache_hits);
-        ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_hits);
+        if (stripe) {
+          ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_hits);
+        }
         DDbg(dbg_ctl_ram_cache, "get %X %" PRId64 " size %d HIT", key->slice32(3), auxkey, e->size);
         return ram_hit_state;
       } else {
         ts::Metrics::Counter::increment(cache_rsb.ram_cache_misses);
-        ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_misses);
+        if (stripe) {
+          ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_misses);
+        }
         DDbg(dbg_ctl_ram_cache, "get %X %" PRId64 " HISTORY", key->slice32(3), auxkey);
         return 0;
       }
@@ -338,34 +392,49 @@ RamCacheCLFUS::get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey
   DDbg(dbg_ctl_ram_cache, "get %X %" PRId64 " MISS", key->slice32(3), auxkey);
 Lerror:
   ts::Metrics::Counter::increment(cache_rsb.ram_cache_misses);
-  ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_misses);
+  if (stripe) {
+    ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_misses);
+  }
 
   return 0;
 Lfailed:
   ats_free(b);
-  this->_destroy(e);
+  this->_destroy(e, partition);
   DDbg(dbg_ctl_ram_cache, "get %X %" PRId64 " Z_ERR", key->slice32(3), auxkey);
   goto Lerror;
 }
 
 void
-RamCacheCLFUS::_tick()
+RamCacheCLFUS::_tick(int partition)
 {
-  RamCacheCLFUSEntry *e = this->_lru[1].dequeue();
+  RamCacheCLFUSEntry *e = nullptr;
+  if (_shared) {
+    e = this->_partition_lru[partition][1].dequeue();
+  } else {
+    e = this->_lru[1].dequeue();
+  }
   if (!e) {
     return;
   }
   e->hits >>= 1;
   if (e->hits) {
     e->hits = REQUEUE_HITS(e->hits);
-    this->_lru[1].enqueue(e);
+    if (_shared) {
+      this->_partition_lru[partition][1].enqueue(e);
+    } else {
+      this->_lru[1].enqueue(e);
+    }
   } else {
     goto Lfree;
   }
   if (this->_history <= this->_objects + HISTORY_HYSTERIA) {
     return;
   }
-  e = this->_lru[1].dequeue();
+  if (_shared) {
+    e = this->_partition_lru[partition][1].dequeue();
+  } else {
+    e = this->_lru[1].dequeue();
+  }
 Lfree:
   if (!e) { // e may be nullptr after e= lru[1].dequeue()
     return;
@@ -379,40 +448,53 @@ Lfree:
 }
 
 void
-RamCacheCLFUS::_victimize(RamCacheCLFUSEntry *e)
+RamCacheCLFUS::_victimize(RamCacheCLFUSEntry *e, int partition)
 {
   this->_objects--;
   DDbg(dbg_ctl_ram_cache, "put %X %" PRId64 " size %d VICTIMIZED", e->key.slice32(3), e->auxkey, e->size);
   e->data          = nullptr;
   e->flag_bits.lru = 1;
-  this->_lru[1].enqueue(e);
+  if (_shared) {
+    this->_partition_lru[partition][1].enqueue(e);
+  } else {
+    this->_lru[1].enqueue(e);
+  }
   this->_history++;
 }
 
 void
-RamCacheCLFUS::_move_compressed(RamCacheCLFUSEntry *e)
+RamCacheCLFUS::_move_compressed(RamCacheCLFUSEntry *e, int partition)
 {
-  if (e == this->_compressed) {
-    if (this->_compressed->lru_link.next) {
-      this->_compressed = this->_compressed->lru_link.next;
+  RamCacheCLFUSEntry *&compressed  = _shared ? this->_partition_compressed[partition] : this->_compressed;
+  int                 &ncompressed = _shared ? this->_partition_ncompressed[partition] : this->_ncompressed;
+
+  if (e == compressed) {
+    if (compressed->lru_link.next) {
+      compressed = compressed->lru_link.next;
     } else {
-      this->_ncompressed--;
-      this->_compressed = this->_compressed->lru_link.prev;
+      ncompressed--;
+      compressed = compressed->lru_link.prev;
     }
   }
 }
 
 RamCacheCLFUSEntry *
-RamCacheCLFUS::_destroy(RamCacheCLFUSEntry *e)
+RamCacheCLFUS::_destroy(RamCacheCLFUSEntry *e, int partition)
 {
   RamCacheCLFUSEntry *ret = e->hash_link.next;
-  this->_move_compressed(e);
-  this->_lru[e->flag_bits.lru].remove(e);
+  this->_move_compressed(e, partition);
+  if (_shared) {
+    this->_partition_lru[partition][e->flag_bits.lru].remove(e);
+  } else {
+    this->_lru[e->flag_bits.lru].remove(e);
+  }
   if (!e->flag_bits.lru) {
     this->_objects--;
     this->_bytes -= e->size + ENTRY_OVERHEAD;
     ts::Metrics::Gauge::decrement(cache_rsb.ram_cache_bytes, e->size);
-    ts::Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.ram_cache_bytes, e->size);
+    if (stripe) {
+      ts::Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.ram_cache_bytes, e->size);
+    }
     e->data = nullptr;
   } else {
     this->_history--;
@@ -430,8 +512,154 @@ RamCacheCLFUS::compress_entries(EThread *thread, int do_at_most)
   if (!cache_config_ram_cache_compress) {
     return;
   }
+
+  if (_shared) {
+    // In shared mode, iterate through all partitions
+    int entries_per_partition = (do_at_most + RAM_CACHE_PARTITIONS - 1) / RAM_CACHE_PARTITIONS;
+    for (int p = 0; p < RAM_CACHE_PARTITIONS; p++) {
+      std::lock_guard<std::mutex> partition_lock(_partition_locks[p]);
+
+      RamCacheCLFUSEntry *&compressed  = this->_partition_compressed[p];
+      int                 &ncompressed = this->_partition_ncompressed[p];
+
+      if (!compressed) {
+        compressed  = this->_partition_lru[p][0].head;
+        ncompressed = 0;
+      }
+
+      // Calculate target for this partition (proportional share)
+      float target = (cache_config_ram_cache_compress_percent / 100.0) * (this->_objects.load() / RAM_CACHE_PARTITIONS);
+      int   n      = 0;
+      char *b = nullptr, *bb = nullptr;
+
+      while (compressed && target > ncompressed) {
+        RamCacheCLFUSEntry *e = compressed;
+        if (e->flag_bits.incompressible || e->flag_bits.compressed) {
+          goto Lcontinue_shared;
+        }
+        n++;
+        if (entries_per_partition < n) {
+          break;
+        }
+        {
+          e->compressed_len = e->size;
+          uint32_t l        = 0;
+          int      ctype    = cache_config_ram_cache_compress;
+          switch (ctype) {
+          default:
+            goto Lcontinue_shared;
+          case CACHE_COMPRESSION_FASTLZ:
+            l = static_cast<uint32_t>(static_cast<double>(e->len) * 1.05 + 66);
+            break;
+          case CACHE_COMPRESSION_LIBZ:
+            l = static_cast<uint32_t>(compressBound(e->len));
+            break;
+#ifdef HAVE_LZMA_H
+          case CACHE_COMPRESSION_LIBLZMA:
+            l = e->len;
+            break;
+#endif
+          }
+          // In shared mode, we keep the partition lock during compression
+          // This is simpler and safer than trying to release and re-acquire
+          Ptr<IOBufferData> edata = e->data;
+          uint32_t          elen  = e->len;
+
+          b           = static_cast<char *>(ats_malloc(l));
+          bool failed = false;
+          switch (ctype) {
+          default:
+            goto Lfailed_shared;
+          case CACHE_COMPRESSION_FASTLZ:
+            if (e->len < 16) {
+              goto Lfailed_shared;
+            }
+            if ((l = fastlz_compress(edata->data(), elen, b)) <= 0) {
+              failed = true;
+            }
+            break;
+          case CACHE_COMPRESSION_LIBZ: {
+            uLongf ll = l;
+            if ((Z_OK != compress(reinterpret_cast<Bytef *>(b), &ll, reinterpret_cast<Bytef *>(edata->data()), elen))) {
+              failed = true;
+            }
+            l = static_cast<int>(ll);
+            break;
+          }
+#ifdef HAVE_LZMA_H
+          case CACHE_COMPRESSION_LIBLZMA: {
+            size_t pos = 0, ll = l;
+            if (LZMA_OK != lzma_easy_buffer_encode(LZMA_PRESET_DEFAULT, LZMA_CHECK_NONE, nullptr,
+                                                   reinterpret_cast<uint8_t *>(edata->data()), elen, reinterpret_cast<uint8_t *>(b),
+                                                   &pos, ll)) {
+              failed = true;
+            }
+            l = static_cast<int>(pos);
+            break;
+          }
+#endif
+          }
+          if (failed) {
+            goto Lfailed_shared;
+          }
+          if (l > REQUIRED_COMPRESSION * e->len) {
+            e->flag_bits.incompressible = true;
+          }
+          if (l > REQUIRED_SHRINK * e->size) {
+            goto Lfailed_shared;
+          }
+          if (l < e->len) {
+            e->flag_bits.compressed = cache_config_ram_cache_compress;
+            bb                      = static_cast<char *>(ats_malloc(l));
+            memcpy(bb, b, l);
+            ats_free(b);
+            e->compressed_len  = l;
+            int64_t delta      = (static_cast<int64_t>(l)) - static_cast<int64_t>(e->size);
+            this->_bytes      += delta;
+            ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, delta);
+            if (stripe) {
+              ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+            }
+            e->size = l;
+          } else {
+            ats_free(b);
+            e->flag_bits.compressed = 0;
+            bb                      = static_cast<char *>(ats_malloc(e->len));
+            memcpy(bb, e->data->data(), e->len);
+            int64_t delta  = (static_cast<int64_t>(e->len)) - static_cast<int64_t>(e->size);
+            this->_bytes  += delta;
+            ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, delta);
+            if (stripe) {
+              ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+            }
+            e->size = e->len;
+            l       = e->len;
+          }
+          e->data            = new_xmalloc_IOBufferData(bb, l);
+          e->data->_mem_type = DEFAULT_ALLOC;
+          check_accounting(this);
+        }
+        goto Lcontinue_shared;
+      Lfailed_shared:
+        ats_free(b);
+        e->flag_bits.incompressible = 1;
+      Lcontinue_shared:;
+        DDbg(dbg_ctl_ram_cache, "compress %X %" PRId64 " %d %d %d %d %d", e->key.slice32(3), e->auxkey, e->flag_bits.incompressible,
+             e->flag_bits.compressed, e->len, e->compressed_len, ncompressed);
+        if (!e->lru_link.next) {
+          break;
+        }
+        compressed = e->lru_link.next;
+        ncompressed++;
+      }
+    }
+    return;
+  }
+
+  // Non-shared mode: original behavior
   ink_assert(stripe != nullptr);
   MUTEX_TAKE_LOCK(stripe->mutex, thread);
+
   if (!this->_compressed) {
     this->_compressed  = this->_lru[0].head;
     this->_ncompressed = 0;
@@ -541,7 +769,9 @@ RamCacheCLFUS::compress_entries(EThread *thread, int do_at_most)
         int64_t delta      = (static_cast<int64_t>(l)) - static_cast<int64_t>(e->size);
         this->_bytes      += delta;
         ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, delta);
-        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+        if (stripe) {
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+        }
         e->size = l;
       } else {
         ats_free(b);
@@ -551,7 +781,9 @@ RamCacheCLFUS::compress_entries(EThread *thread, int do_at_most)
         int64_t delta  = (static_cast<int64_t>(e->len)) - static_cast<int64_t>(e->size);
         this->_bytes  += delta;
         ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, delta);
-        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+        if (stripe) {
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+        }
         e->size = e->len;
         l       = e->len;
       }
@@ -577,15 +809,21 @@ RamCacheCLFUS::compress_entries(EThread *thread, int do_at_most)
 }
 
 void
-RamCacheCLFUS::_requeue_victims(Que(RamCacheCLFUSEntry, lru_link) & victims)
+RamCacheCLFUS::_requeue_victims(Que(RamCacheCLFUSEntry, lru_link) & victims, int partition)
 {
   RamCacheCLFUSEntry *victim = nullptr;
   while ((victim = victims.dequeue())) {
     this->_bytes += victim->size + ENTRY_OVERHEAD;
     ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, victim->size);
-    ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, victim->size);
+    if (stripe) {
+      ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, victim->size);
+    }
     victim->hits = REQUEUE_HITS(victim->hits);
-    this->_lru[0].enqueue(victim);
+    if (_shared) {
+      this->_partition_lru[partition][0].enqueue(victim);
+    } else {
+      this->_lru[0].enqueue(victim);
+    }
   }
 }
 
@@ -595,16 +833,27 @@ RamCacheCLFUS::put(CryptoHash *key, IOBufferData *data, uint32_t len, bool copy,
   if (!this->_max_bytes) {
     return 0;
   }
-  uint32_t            i            = key->slice32(3) % this->_nbuckets;
+
+  uint32_t i         = key->slice32(3) % this->_nbuckets;
+  int      partition = _get_partition(i);
+
+  std::unique_lock<std::mutex> lock(_shared ? _partition_locks[partition] : _mutex);
+
   RamCacheCLFUSEntry *e            = this->_bucket[i].head;
   uint32_t            size         = copy ? len : data->block_size();
   double              victim_value = 0;
+
+  // Get partition-specific state references
+  double              &average_value = _shared ? this->_partition_average_value[partition] : this->_average_value;
+  RamCacheCLFUSEntry *&compressed    = _shared ? this->_partition_compressed[partition] : this->_compressed;
+  int                 &ncompressed   = _shared ? this->_partition_ncompressed[partition] : this->_ncompressed;
+
   while (e) {
     if (e->key == *key) {
       if (e->auxkey == auxkey) {
         break;
       } else {
-        e = this->_destroy(e); // discard when aux keys conflict
+        e = this->_destroy(e, partition); // discard when aux keys conflict
         continue;
       }
     }
@@ -613,13 +862,20 @@ RamCacheCLFUS::put(CryptoHash *key, IOBufferData *data, uint32_t len, bool copy,
   if (e) {
     e->hits++;
     if (!e->flag_bits.lru) { // already in cache
-      this->_move_compressed(e);
-      this->_lru[e->flag_bits.lru].remove(e);
-      this->_lru[e->flag_bits.lru].enqueue(e);
+      this->_move_compressed(e, partition);
+      if (_shared) {
+        this->_partition_lru[partition][e->flag_bits.lru].remove(e);
+        this->_partition_lru[partition][e->flag_bits.lru].enqueue(e);
+      } else {
+        this->_lru[e->flag_bits.lru].remove(e);
+        this->_lru[e->flag_bits.lru].enqueue(e);
+      }
       int64_t delta  = (static_cast<int64_t>(size)) - static_cast<int64_t>(e->size);
       this->_bytes  += delta;
       ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, delta);
-      ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+      if (stripe) {
+        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, delta);
+      }
       if (!copy) {
         e->size = size;
         e->data = data;
@@ -636,9 +892,17 @@ RamCacheCLFUS::put(CryptoHash *key, IOBufferData *data, uint32_t len, bool copy,
       DDbg(dbg_ctl_ram_cache, "put %X %" PRId64 " size %d HIT", key->slice32(3), auxkey, e->size);
       return 1;
     } else {
-      this->_lru[1].remove(e);
-      if (CACHE_VALUE(e) < this->_average_value) {
-        this->_lru[1].enqueue(e);
+      if (_shared) {
+        this->_partition_lru[partition][1].remove(e);
+      } else {
+        this->_lru[1].remove(e);
+      }
+      if (CACHE_VALUE(e) < average_value) {
+        if (_shared) {
+          this->_partition_lru[partition][1].enqueue(e);
+        } else {
+          this->_lru[1].enqueue(e);
+        }
         return 0;
       }
     }
@@ -646,7 +910,10 @@ RamCacheCLFUS::put(CryptoHash *key, IOBufferData *data, uint32_t len, bool copy,
   Que(RamCacheCLFUSEntry, lru_link) victims;
   RamCacheCLFUSEntry *victim        = nullptr;
   int                 requeue_limit = REQUEUE_LIMIT;
-  if (!this->_lru[1].head) { // initial fill
+
+  // Check initial fill condition using partition-specific LRU
+  bool has_history = _shared ? (this->_partition_lru[partition][1].head != nullptr) : (this->_lru[1].head != nullptr);
+  if (!has_history) { // initial fill
     if (this->_bytes + size <= this->_max_bytes) {
       goto Linsert;
     }
@@ -662,41 +929,59 @@ RamCacheCLFUS::put(CryptoHash *key, IOBufferData *data, uint32_t len, bool copy,
     }
   }
   while (true) {
-    victim = this->_lru[0].dequeue();
+    if (_shared) {
+      victim = this->_partition_lru[partition][0].dequeue();
+    } else {
+      victim = this->_lru[0].dequeue();
+    }
     if (!victim) {
       if (this->_bytes + size <= this->_max_bytes) {
         goto Linsert;
       }
       if (e) {
-        this->_lru[1].enqueue(e);
+        if (_shared) {
+          this->_partition_lru[partition][1].enqueue(e);
+        } else {
+          this->_lru[1].enqueue(e);
+        }
       }
-      this->_requeue_victims(victims);
+      this->_requeue_victims(victims, partition);
       DDbg(dbg_ctl_ram_cache, "put %X %" PRId64 " NO VICTIM", key->slice32(3), auxkey);
       return 0;
     }
-    this->_average_value = (CACHE_VALUE(victim) + (this->_average_value * (AVERAGE_VALUE_OVER - 1))) / AVERAGE_VALUE_OVER;
-    if (CACHE_VALUE(victim) > this->_average_value && requeue_limit-- > 0) {
-      this->_lru[0].enqueue(victim);
+    average_value = (CACHE_VALUE(victim) + (average_value * (AVERAGE_VALUE_OVER - 1))) / AVERAGE_VALUE_OVER;
+    if (CACHE_VALUE(victim) > average_value && requeue_limit-- > 0) {
+      if (_shared) {
+        this->_partition_lru[partition][0].enqueue(victim);
+      } else {
+        this->_lru[0].enqueue(victim);
+      }
       continue;
     }
     this->_bytes -= victim->size + ENTRY_OVERHEAD;
     ts::Metrics::Gauge::decrement(cache_rsb.ram_cache_bytes, victim->size);
-    ts::Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.ram_cache_bytes, victim->size);
+    if (stripe) {
+      ts::Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.ram_cache_bytes, victim->size);
+    }
     victims.enqueue(victim);
-    if (victim == this->_compressed) {
-      this->_compressed = nullptr;
+    if (victim == compressed) {
+      compressed = nullptr;
     } else {
-      this->_ncompressed--;
+      ncompressed--;
     }
     victim_value += CACHE_VALUE(victim);
-    this->_tick();
+    this->_tick(partition);
     if (!e) {
       goto Lhistory;
     } else { // e from history
       DDbg(dbg_ctl_ram_cache_compare, "put %f %f", victim_value, CACHE_VALUE(e));
       if (this->_bytes + victim->size + size > this->_max_bytes && victim_value > CACHE_VALUE(e)) {
-        this->_requeue_victims(victims);
-        this->_lru[1].enqueue(e);
+        this->_requeue_victims(victims, partition);
+        if (_shared) {
+          this->_partition_lru[partition][1].enqueue(e);
+        } else {
+          this->_lru[1].enqueue(e);
+        }
         DDbg(dbg_ctl_ram_cache, "put %X %" PRId64 " size %d INC %" PRId64 " HISTORY", key->slice32(3), auxkey, e->size, e->hits);
         return 0;
       }
@@ -710,11 +995,17 @@ Linsert:
     if (this->_bytes + size + victim->size <= this->_max_bytes) {
       this->_bytes += victim->size + ENTRY_OVERHEAD;
       ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, victim->size);
-      ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, victim->size);
+      if (stripe) {
+        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, victim->size);
+      }
       victim->hits = REQUEUE_HITS(victim->hits);
-      this->_lru[0].enqueue(victim);
+      if (_shared) {
+        this->_partition_lru[partition][0].enqueue(victim);
+      } else {
+        this->_lru[0].enqueue(victim);
+      }
     } else {
-      this->_victimize(victim);
+      this->_victimize(victim, partition);
     }
   }
   if (e) {
@@ -741,28 +1032,40 @@ Linsert:
     e->data->_mem_type = DEFAULT_ALLOC;
   }
   e->flag_bits.copy  = copy;
+  e->partition       = partition; // Store partition for this entry
   this->_bytes      += size + ENTRY_OVERHEAD;
   ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, size);
-  ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, size);
+  if (stripe) {
+    ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, size);
+  }
   e->size = size;
   this->_objects++;
-  this->_lru[0].enqueue(e);
+  if (_shared) {
+    this->_partition_lru[partition][0].enqueue(e);
+  } else {
+    this->_lru[0].enqueue(e);
+  }
   e->len = len;
   check_accounting(this);
   DDbg(dbg_ctl_ram_cache, "put %X %" PRId64 " size %d INSERTED", key->slice32(3), auxkey, e->size);
   return 1;
 Lhistory:
-  this->_requeue_victims(victims);
+  this->_requeue_victims(victims, partition);
   check_accounting(this);
-  e         = THREAD_ALLOC(ramCacheCLFUSEntryAllocator, this_ethread());
-  e->key    = *key;
-  e->auxkey = auxkey;
-  e->hits   = 1;
-  e->size   = data->block_size();
-  e->flags  = 0;
+  e            = THREAD_ALLOC(ramCacheCLFUSEntryAllocator, this_ethread());
+  e->key       = *key;
+  e->auxkey    = auxkey;
+  e->hits      = 1;
+  e->size      = data->block_size();
+  e->flags     = 0;
+  e->partition = partition; // Store partition for this entry
   this->_bucket[i].push(e);
   e->flag_bits.lru = 1;
-  this->_lru[1].enqueue(e);
+  if (_shared) {
+    this->_partition_lru[partition][1].enqueue(e);
+  } else {
+    this->_lru[1].enqueue(e);
+  }
   this->_history++;
   DDbg(dbg_ctl_ram_cache, "put %X %" PRId64 " HISTORY", key->slice32(3), auxkey);
   return 0;
@@ -774,7 +1077,12 @@ RamCacheCLFUS::fixup(const CryptoHash *key, uint64_t old_auxkey, uint64_t new_au
   if (!this->_max_bytes) {
     return 0;
   }
-  uint32_t            i = key->slice32(3) % this->_nbuckets;
+
+  uint32_t i         = key->slice32(3) % this->_nbuckets;
+  int      partition = _get_partition(i);
+
+  std::unique_lock<std::mutex> lock(_shared ? _partition_locks[partition] : _mutex);
+
   RamCacheCLFUSEntry *e = this->_bucket[i].head;
   while (e) {
     if (e->key == *key && e->auxkey == old_auxkey) {

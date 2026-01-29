@@ -28,19 +28,32 @@
 #include "iocore/eventsystem/IOBuffer.h"
 #include "tscore/CryptoHash.h"
 
+#include <atomic>
+#include <mutex>
+
 class StripeSM;
+
+// Number of partitions for shared RAM cache locking
+// Must be a power of 2 for efficient modulo operation
+static constexpr int RAM_CACHE_PARTITIONS = 64;
 
 class RamCache
 {
 public:
-  // returns 1 on found/stored, 0 on not found/stored, if provided auxkey1 and auxkey2 must match
+  // returns 1 on found/stored, 0 on not found/stored, if provided auxkey must match
   virtual int     get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey = 0)                         = 0;
   virtual int     put(CryptoHash *key, IOBufferData *data, uint32_t len, bool copy = false, uint64_t auxkey = 0) = 0;
   virtual int     fixup(const CryptoHash *key, uint64_t old_auxkey, uint64_t new_auxkey)                         = 0;
   virtual int64_t size() const                                                                                   = 0;
 
-  virtual void init(int64_t max_bytes, StripeSM *stripe) = 0;
+  virtual void init(int64_t max_bytes, StripeSM *stripe, bool shared = false) = 0;
   virtual ~RamCache(){};
+
+protected:
+  // For non-shared mode: single mutex
+  // For shared mode: use partition locks in derived class
+  mutable std::mutex _mutex;
+  bool               _shared = false;
 };
 
 RamCache *new_RamCacheLRU();

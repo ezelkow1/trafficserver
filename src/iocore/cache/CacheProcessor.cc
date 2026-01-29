@@ -1425,19 +1425,6 @@ CacheProcessor::cacheInitialized()
         gnstripes.load());
 
     if (gnstripes) {
-      // new ram_caches, with algorithm from the config
-      for (int i = 0; i < gnstripes; i++) {
-        switch (cache_config_ram_cache_algorithm) {
-        default:
-        case RAM_CACHE_ALGORITHM_CLFUS:
-          gstripes[i]->ram_cache = new_RamCacheCLFUS();
-          break;
-        case RAM_CACHE_ALGORITHM_LRU:
-          gstripes[i]->ram_cache = new_RamCacheLRU();
-          break;
-        }
-      }
-
       int64_t http_ram_cache_size = 0;
 
       // let us calculate the Size
@@ -1468,46 +1455,126 @@ CacheProcessor::cacheInitialized()
       uint64_t used_direntries       = 0; //   and used
       uint64_t total_ram_cache_bytes = 0;
 
-      for (int i = 0; i < gnstripes; i++) {
-        StripeSM *stripe          = gstripes[i];
-        int64_t   ram_cache_bytes = 0;
-
-        if (stripe->cache_vol->ramcache_enabled) {
-          if (http_ram_cache_size == 0) {
-            // AUTO_SIZE_RAM_CACHE
-            ram_cache_bytes = stripe->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER;
-          } else {
-            ink_assert(stripe->cache != nullptr);
-
-            double factor = static_cast<double>(static_cast<int64_t>(stripe->len >> STORE_BLOCK_SHIFT)) / theCache->cache_size;
-            Dbg(dbg_ctl_cache_init, "factor = %f", factor);
-
-            ram_cache_bytes = static_cast<int64_t>(http_ram_cache_size * factor);
-          }
-
-          stripe->ram_cache->init(ram_cache_bytes, stripe);
-          total_ram_cache_bytes += ram_cache_bytes;
-          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes_total, ram_cache_bytes);
-
-          Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized[%d] - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", i,
-              ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
+      if (cache_config_ram_cache_shared) {
+        // Create single shared RAM cache for all stripes
+        RamCache *shared_ram_cache = nullptr;
+        switch (cache_config_ram_cache_algorithm) {
+        default:
+        case RAM_CACHE_ALGORITHM_CLFUS:
+          shared_ram_cache = new_RamCacheCLFUS();
+          break;
+        case RAM_CACHE_ALGORITHM_LRU:
+          shared_ram_cache = new_RamCacheLRU();
+          break;
         }
 
-        uint64_t vol_total_cache_bytes  = stripe->len - stripe->dirlen();
-        total_cache_bytes              += vol_total_cache_bytes;
-        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
-        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.stripes);
+        // First pass: calculate total RAM cache size
+        for (int i = 0; i < gnstripes; i++) {
+          StripeSM *stripe          = gstripes[i];
+          int64_t   ram_cache_bytes = 0;
+
+          if (stripe->cache_vol->ramcache_enabled) {
+            if (http_ram_cache_size == 0) {
+              // AUTO_SIZE_RAM_CACHE
+              ram_cache_bytes = stripe->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER;
+            } else {
+              ink_assert(stripe->cache != nullptr);
+
+              double factor = static_cast<double>(static_cast<int64_t>(stripe->len >> STORE_BLOCK_SHIFT)) / theCache->cache_size;
+              Dbg(dbg_ctl_cache_init, "factor = %f", factor);
+
+              ram_cache_bytes = static_cast<int64_t>(http_ram_cache_size * factor);
+            }
+
+            total_ram_cache_bytes += ram_cache_bytes;
+          }
+        }
+
+        // Initialize shared RAM cache with total size and no stripe
+        shared_ram_cache->init(total_ram_cache_bytes, nullptr, true);
+
+        Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized - shared ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb",
+            total_ram_cache_bytes, total_ram_cache_bytes / (1024 * 1024));
+
+        // Second pass: assign shared RAM cache to all stripes and collect stats
+        for (int i = 0; i < gnstripes; i++) {
+          StripeSM *stripe = gstripes[i];
+
+          // Assign the shared RAM cache to this stripe
+          stripe->ram_cache = shared_ram_cache;
+
+          uint64_t vol_total_cache_bytes  = stripe->len - stripe->dirlen();
+          total_cache_bytes              += vol_total_cache_bytes;
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.stripes);
+
+          uint64_t vol_total_direntries  = stripe->directory.entries();
+          total_direntries              += vol_total_direntries;
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
+
+          uint64_t vol_used_direntries = stripe->directory.entries_used();
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
+          used_direntries += vol_used_direntries;
+        }
 
         Dbg(dbg_ctl_cache_init, "total_cache_bytes = %" PRId64 " = %" PRId64 "Mb", total_cache_bytes,
             total_cache_bytes / (1024 * 1024));
+      } else {
+        // Per-stripe RAM cache allocation
+        // new ram_caches, with algorithm from the config
+        for (int i = 0; i < gnstripes; i++) {
+          switch (cache_config_ram_cache_algorithm) {
+          default:
+          case RAM_CACHE_ALGORITHM_CLFUS:
+            gstripes[i]->ram_cache = new_RamCacheCLFUS();
+            break;
+          case RAM_CACHE_ALGORITHM_LRU:
+            gstripes[i]->ram_cache = new_RamCacheLRU();
+            break;
+          }
+        }
 
-        uint64_t vol_total_direntries  = stripe->directory.entries();
-        total_direntries              += vol_total_direntries;
-        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
+        for (int i = 0; i < gnstripes; i++) {
+          StripeSM *stripe          = gstripes[i];
+          int64_t   ram_cache_bytes = 0;
 
-        uint64_t vol_used_direntries = stripe->directory.entries_used();
-        ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
-        used_direntries += vol_used_direntries;
+          if (stripe->cache_vol->ramcache_enabled) {
+            if (http_ram_cache_size == 0) {
+              // AUTO_SIZE_RAM_CACHE
+              ram_cache_bytes = stripe->dirlen() * DEFAULT_RAM_CACHE_MULTIPLIER;
+            } else {
+              ink_assert(stripe->cache != nullptr);
+
+              double factor = static_cast<double>(static_cast<int64_t>(stripe->len >> STORE_BLOCK_SHIFT)) / theCache->cache_size;
+              Dbg(dbg_ctl_cache_init, "factor = %f", factor);
+
+              ram_cache_bytes = static_cast<int64_t>(http_ram_cache_size * factor);
+            }
+
+            stripe->ram_cache->init(ram_cache_bytes, stripe);
+            total_ram_cache_bytes += ram_cache_bytes;
+            ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes_total, ram_cache_bytes);
+
+            Dbg(dbg_ctl_cache_init, "CacheProcessor::cacheInitialized[%d] - ram_cache_bytes = %" PRId64 " = %" PRId64 "Mb", i,
+                ram_cache_bytes, ram_cache_bytes / (1024 * 1024));
+          }
+
+          uint64_t vol_total_cache_bytes  = stripe->len - stripe->dirlen();
+          total_cache_bytes              += vol_total_cache_bytes;
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.bytes_total, vol_total_cache_bytes);
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.stripes);
+
+          Dbg(dbg_ctl_cache_init, "total_cache_bytes = %" PRId64 " = %" PRId64 "Mb", total_cache_bytes,
+              total_cache_bytes / (1024 * 1024));
+
+          uint64_t vol_total_direntries  = stripe->directory.entries();
+          total_direntries              += vol_total_direntries;
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_total, vol_total_direntries);
+
+          uint64_t vol_used_direntries = stripe->directory.entries_used();
+          ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.direntries_used, vol_used_direntries);
+          used_direntries += vol_used_direntries;
+        }
       }
 
       switch (cache_config_ram_cache_compress) {

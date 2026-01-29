@@ -59,6 +59,7 @@ int     cache_config_ram_cache_algorithm           = 1;
 int     cache_config_ram_cache_compress            = 0;
 int     cache_config_ram_cache_compress_percent    = 90;
 int     cache_config_ram_cache_use_seen_filter     = 1;
+int     cache_config_ram_cache_shared              = 0;
 int     cache_config_http_max_alts                 = 3;
 int     cache_config_log_alternate_eviction        = 0;
 int     cache_config_dir_sync_frequency            = 60;
@@ -806,6 +807,7 @@ ink_cache_init(ts::ModuleVersion v)
   RecEstablishStaticConfigInt32(cache_config_ram_cache_compress, "proxy.config.cache.ram_cache.compress");
   RecEstablishStaticConfigInt32(cache_config_ram_cache_compress_percent, "proxy.config.cache.ram_cache.compress_percent");
   cache_config_ram_cache_use_seen_filter = RecGetRecordInt("proxy.config.cache.ram_cache.use_seen_filter").value_or(0);
+  RecEstablishStaticConfigInt32(cache_config_ram_cache_shared, "proxy.config.cache.ram_cache.shared");
 
   RecEstablishStaticConfigInt32(cache_config_http_max_alts, "proxy.config.cache.limits.http.max_alts");
   Dbg(dbg_ctl_cache_init, "proxy.config.cache.limits.http.max_alts = %d", cache_config_http_max_alts);

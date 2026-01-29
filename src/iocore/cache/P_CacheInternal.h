@@ -111,6 +111,7 @@ extern int cache_config_agg_write_backlog;
 extern int cache_config_ram_cache_compress;
 extern int cache_config_ram_cache_compress_percent;
 extern int cache_config_ram_cache_use_seen_filter;
+extern int cache_config_ram_cache_shared;
 extern int cache_config_hit_evacuate_percent;
 extern int cache_config_hit_evacuate_size_limit;
 extern int cache_config_force_sector_size;

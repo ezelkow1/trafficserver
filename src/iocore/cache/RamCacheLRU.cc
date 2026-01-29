@@ -33,6 +33,7 @@
 struct RamCacheLRUEntry {
   CryptoHash key;
   uint64_t   auxkey;
+  int        partition; // which partition this entry belongs to (for shared mode)
   LINK(RamCacheLRUEntry, lru_link);
   LINK(RamCacheLRUEntry, hash_link);
   Ptr<IOBufferData> data;
@@ -41,9 +42,9 @@ struct RamCacheLRUEntry {
 #define ENTRY_OVERHEAD 128 // per-entry overhead to consider when computing sizes
 
 struct RamCacheLRU : public RamCache {
-  int64_t max_bytes = 0;
-  int64_t bytes     = 0;
-  int64_t objects   = 0;
+  int64_t              max_bytes = 0;
+  std::atomic<int64_t> bytes{0};   // atomic for shared mode
+  std::atomic<int64_t> objects{0}; // atomic for shared mode
 
   // returns 1 on found/stored, 0 on not found/stored, if provided auxkey must match
   int     get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey = 0) override;
@@ -51,18 +52,31 @@ struct RamCacheLRU : public RamCache {
   int     fixup(const CryptoHash *key, uint64_t old_auxkey, uint64_t new_auxkey) override;
   int64_t size() const override;
 
-  void init(int64_t max_bytes, StripeSM *stripe) override;
+  void init(int64_t max_bytes, StripeSM *stripe, bool shared = false) override;
 
   // private
   std::vector<bool> seen;
+
+  // Per-partition state for shared mode
+  mutable std::mutex _partition_locks[RAM_CACHE_PARTITIONS];
+  Que(RamCacheLRUEntry, lru_link) _partition_lru[RAM_CACHE_PARTITIONS];
+
+  // Non-shared mode state (legacy)
   Que(RamCacheLRUEntry, lru_link) lru;
+
   DList(RamCacheLRUEntry, hash_link) *bucket = nullptr;
   int       nbuckets                         = 0;
   int       ibuckets                         = 0;
   StripeSM *stripe                           = nullptr;
 
+  int
+  _get_partition(int bucket_idx) const
+  {
+    return bucket_idx % RAM_CACHE_PARTITIONS;
+  }
+
   void              resize_hashtable();
-  RamCacheLRUEntry *remove(RamCacheLRUEntry *e);
+  RamCacheLRUEntry *remove(RamCacheLRUEntry *e, int partition);
 };
 
 #ifdef DEBUG
@@ -80,11 +94,25 @@ int64_t
 RamCacheLRU::size() const
 {
   int64_t s = 0;
-  forl_LL(RamCacheLRUEntry, e, lru)
-  {
-    s += sizeof(*e);
-    s += sizeof(*e->data);
-    s += e->data->block_size();
+  if (_shared) {
+    // In shared mode, iterate through all partition LRUs
+    for (int p = 0; p < RAM_CACHE_PARTITIONS; p++) {
+      std::lock_guard<std::mutex> lock(_partition_locks[p]);
+      forl_LL(RamCacheLRUEntry, e, _partition_lru[p])
+      {
+        s += sizeof(*e);
+        s += sizeof(*e->data);
+        s += e->data->block_size();
+      }
+    }
+  } else {
+    // Non-shared mode uses single LRU
+    forl_LL(RamCacheLRUEntry, e, lru)
+    {
+      s += sizeof(*e);
+      s += sizeof(*e->data);
+      s += e->data->block_size();
+    }
   }
   return s;
 }
@@ -124,11 +152,12 @@ RamCacheLRU::resize_hashtable()
 }
 
 void
-RamCacheLRU::init(int64_t abytes, StripeSM *astripe)
+RamCacheLRU::init(int64_t abytes, StripeSM *astripe, bool shared)
 {
+  _shared   = shared;
   stripe    = astripe;
   max_bytes = abytes;
-  DDbg(dbg_ctl_ram_cache, "initializing ram_cache %" PRId64 " bytes", abytes);
+  DDbg(dbg_ctl_ram_cache, "initializing ram_cache %" PRId64 " bytes, shared=%d", abytes, shared);
   if (!max_bytes) {
     return;
   }
@@ -141,16 +170,28 @@ RamCacheLRU::get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey)
   if (!max_bytes) {
     return 0;
   }
-  uint32_t          i = key->slice32(3) % nbuckets;
+
+  uint32_t i         = key->slice32(3) % nbuckets;
+  int      partition = _get_partition(i);
+
+  std::unique_lock<std::mutex> lock(_shared ? _partition_locks[partition] : _mutex);
+
   RamCacheLRUEntry *e = bucket[i].head;
   while (e) {
     if (e->key == *key && e->auxkey == auxkey) {
-      lru.remove(e);
-      lru.enqueue(e);
+      if (_shared) {
+        _partition_lru[partition].remove(e);
+        _partition_lru[partition].enqueue(e);
+      } else {
+        lru.remove(e);
+        lru.enqueue(e);
+      }
       (*ret_data) = e->data;
       DDbg(dbg_ctl_ram_cache, "get %X %" PRIu64 " HIT", key->slice32(3), auxkey);
       ts::Metrics::Counter::increment(cache_rsb.ram_cache_hits);
-      ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_hits);
+      if (stripe) {
+        ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_hits);
+      }
 
       return 1;
     }
@@ -158,21 +199,29 @@ RamCacheLRU::get(CryptoHash *key, Ptr<IOBufferData> *ret_data, uint64_t auxkey)
   }
   DDbg(dbg_ctl_ram_cache, "get %X %" PRIu64 " MISS", key->slice32(3), auxkey);
   ts::Metrics::Counter::increment(cache_rsb.ram_cache_misses);
-  ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_misses);
+  if (stripe) {
+    ts::Metrics::Counter::increment(stripe->cache_vol->vol_rsb.ram_cache_misses);
+  }
 
   return 0;
 }
 
 RamCacheLRUEntry *
-RamCacheLRU::remove(RamCacheLRUEntry *e)
+RamCacheLRU::remove(RamCacheLRUEntry *e, int partition)
 {
   RamCacheLRUEntry *ret = e->hash_link.next;
   uint32_t          b   = e->key.slice32(3) % nbuckets;
   bucket[b].remove(e);
-  lru.remove(e);
+  if (_shared) {
+    _partition_lru[partition].remove(e);
+  } else {
+    lru.remove(e);
+  }
   bytes -= ENTRY_OVERHEAD + e->data->block_size();
   ts::Metrics::Gauge::decrement(cache_rsb.ram_cache_bytes, ENTRY_OVERHEAD + e->data->block_size());
-  ts::Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.ram_cache_bytes, ENTRY_OVERHEAD + e->data->block_size());
+  if (stripe) {
+    ts::Metrics::Gauge::decrement(stripe->cache_vol->vol_rsb.ram_cache_bytes, ENTRY_OVERHEAD + e->data->block_size());
+  }
 
   DDbg(dbg_ctl_ram_cache, "put %X %" PRIu64 " FREED", e->key.slice32(3), e->auxkey);
   e->data = nullptr;
@@ -188,7 +237,12 @@ RamCacheLRU::put(CryptoHash *key, IOBufferData *data, [[maybe_unused]] uint32_t 
   if (!max_bytes) {
     return 0;
   }
-  uint32_t i = key->slice32(3) % nbuckets;
+
+  uint32_t i         = key->slice32(3) % nbuckets;
+  int      partition = _get_partition(i);
+
+  std::unique_lock<std::mutex> lock(_shared ? _partition_locks[partition] : _mutex);
+
   if ((cache_config_ram_cache_use_seen_filter == 1) ||
       // If proxy.config.cache.ram_cache.use_seen_filter is > 1,  and the cache is more than <n>% full, then use the seen filter.
       // <n>% is calculated based on this setting, with 2 == 50%, 3 == 67%, 4 == 75%, up to 9 == 90%.
@@ -208,30 +262,47 @@ RamCacheLRU::put(CryptoHash *key, IOBufferData *data, [[maybe_unused]] uint32_t 
   while (e) {
     if (e->key == *key) {
       if (e->auxkey == auxkey) {
-        lru.remove(e);
-        lru.enqueue(e);
+        if (_shared) {
+          _partition_lru[partition].remove(e);
+          _partition_lru[partition].enqueue(e);
+        } else {
+          lru.remove(e);
+          lru.enqueue(e);
+        }
         return 1;
       } else { // discard when aux keys conflict
-        e = remove(e);
+        e = remove(e, partition);
         continue;
       }
     }
     e = e->hash_link.next;
   }
-  e         = THREAD_ALLOC(ramCacheLRUEntryAllocator, this_ethread());
-  e->key    = *key;
-  e->auxkey = auxkey;
-  e->data   = data;
+  e            = THREAD_ALLOC(ramCacheLRUEntryAllocator, this_ethread());
+  e->key       = *key;
+  e->auxkey    = auxkey;
+  e->partition = partition;
+  e->data      = data;
   bucket[i].push(e);
-  lru.enqueue(e);
+  if (_shared) {
+    _partition_lru[partition].enqueue(e);
+  } else {
+    lru.enqueue(e);
+  }
   bytes += ENTRY_OVERHEAD + data->block_size();
   objects++;
   ts::Metrics::Gauge::increment(cache_rsb.ram_cache_bytes, ENTRY_OVERHEAD + data->block_size());
-  ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, ENTRY_OVERHEAD + data->block_size());
+  if (stripe) {
+    ts::Metrics::Gauge::increment(stripe->cache_vol->vol_rsb.ram_cache_bytes, ENTRY_OVERHEAD + data->block_size());
+  }
   while (bytes > max_bytes) {
-    RamCacheLRUEntry *ee = lru.dequeue();
+    RamCacheLRUEntry *ee = nullptr;
+    if (_shared) {
+      ee = _partition_lru[partition].dequeue();
+    } else {
+      ee = lru.dequeue();
+    }
     if (ee) {
-      remove(ee);
+      remove(ee, partition);
     } else {
       break;
     }
@@ -250,7 +321,12 @@ RamCacheLRU::fixup(const CryptoHash *key, uint64_t old_auxkey, uint64_t new_auxk
   if (!max_bytes) {
     return 0;
   }
-  uint32_t          i = key->slice32(3) % nbuckets;
+
+  uint32_t i         = key->slice32(3) % nbuckets;
+  int      partition = _get_partition(i);
+
+  std::unique_lock<std::mutex> lock(_shared ? _partition_locks[partition] : _mutex);
+
   RamCacheLRUEntry *e = bucket[i].head;
   while (e) {
     if (e->key == *key && e->auxkey == old_auxkey) {
